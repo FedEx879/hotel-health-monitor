@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hotel Health Monitor</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:#f9f9f8; --surface:#fff; --surface2:#f3f3f1;
+    --border:rgba(0,0,0,.10); --border2:rgba(0,0,0,.16);
+    --text:#1a1a18; --text2:#6b6b68; --text3:#9b9b97;
+    --blue:#185FA5; --blue-bg:#E6F1FB; --blue-text:#0C447C;
+    --green:#639922; --green-bg:#EAF3DE; --green-text:#3B6D11;
+    --amber:#EF9F27; --amber-bg:#FAEEDA; --amber-text:#854F0B;
+    --red:#E24B4A; --red-bg:#FCEBEB; --red-text:#A32D2D;
+    --food:#B8651B; --food-bg:#FBEEE0; --food-text:#8A4A12;
+    --supp:#4A6FA5; --supp-bg:#E8EFF7; --supp-text:#33507A;
+    --radius:8px; --radius-lg:12px;
+    --mono:'SF Mono','Fira Code','Consolas',monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#1a1a18; --surface:#242422; --surface2:#2e2e2b;
+      --border:rgba(255,255,255,.10); --border2:rgba(255,255,255,.18);
+      --text:#f0f0ec; --text2:#9b9b97; --text3:#6b6b68;
+      --blue:#5BA3E0; --blue-bg:#0c2d4a; --blue-text:#90c4f0;
+      --green:#7ab832; --green-bg:#1a2e0a; --green-text:#a0d060;
+      --amber:#f0b040; --amber-bg:#2e1f04; --amber-text:#f0c060;
+      --red:#e86060; --red-bg:#2e0a0a; --red-text:#f09090;
+      --food:#d8915a; --food-bg:#2e1a08; --food-text:#e0a878;
+      --supp:#7aa0d0; --supp-bg:#0e1f33; --supp-text:#a0c0e8;
+    }
+  }
+  html, body { height:100%; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
+  .page { max-width:920px; margin:0 auto; padding:2rem 1.25rem 4rem; }
+
+  .header { margin-bottom:1.5rem; }
+  .header h1 { font-size:22px; font-weight:600; display:flex; align-items:center; gap:8px; }
+  .header p { font-size:14px; color:var(--text2); margin-top:4px; }
+
+  .tabs { display:flex; gap:4px; margin-bottom:1.5rem; border-bottom:0.5px solid var(--border); }
+  .tab { padding:9px 16px; font-size:14px; font-weight:500; color:var(--text2); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; background:none; border-top:none; border-left:none; border-right:none; }
+  .tab:hover { color:var(--text); }
+  .tab.on { color:var(--blue); border-bottom-color:var(--blue); }
+  .tab .badge { font-size:11px; background:var(--red-bg); color:var(--red-text); border-radius:10px; padding:1px 7px; margin-left:5px; font-weight:600; }
+
+  .upload-zone { border:1.5px dashed var(--border2); border-radius:var(--radius-lg); padding:2.5rem 1.5rem; text-align:center; cursor:pointer; background:var(--surface2); margin-bottom:1.5rem; transition:.2s; }
+  .upload-zone:hover, .upload-zone.drag { border-color:var(--blue); background:var(--blue-bg); }
+  .upload-zone i { font-size:32px; color:var(--text3); display:block; margin-bottom:8px; }
+  .upload-zone .lbl { font-size:15px; font-weight:500; }
+  .upload-zone .sub { font-size:12px; color:var(--text2); margin-top:4px; }
+  #fileInput { display:none; }
+
+  .card { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius-lg); padding:1.25rem; margin-bottom:1.5rem; }
+  .card h3 { font-size:14px; font-weight:600; margin-bottom:1rem; display:flex; align-items:center; gap:6px; }
+  .map-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .map-item label { font-size:12px; color:var(--text2); display:block; margin-bottom:4px; }
+  .map-item select { width:100%; font-size:13px; padding:7px 10px; border:0.5px solid var(--border2); border-radius:var(--radius); background:var(--surface2); color:var(--text); appearance:none; cursor:pointer; }
+  .map-item select:focus { outline:2px solid var(--blue); outline-offset:1px; }
+  .run-btn { width:100%; padding:11px; font-size:14px; font-weight:600; background:var(--blue); color:#fff; border:none; border-radius:var(--radius); cursor:pointer; margin-top:1rem; }
+  .run-btn:hover { background:var(--blue-text); }
+
+  .period-bar { display:flex; gap:8px; padding:10px 14px; background:var(--surface2); border-radius:var(--radius); font-size:12px; color:var(--text2); align-items:center; flex-wrap:wrap; margin-bottom:1.25rem; }
+  .period-tag { padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600; }
+  .period-tag.p1 { background:var(--blue-bg); color:var(--blue-text); }
+  .period-tag.p2 { background:var(--surface2); color:var(--text2); border:0.5px solid var(--border2); }
+  .period-tag.p3 { background:var(--surface2); color:var(--text3); border:0.5px solid var(--border); }
+
+  .summary-row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:1.5rem; }
+  .s-card { background:var(--surface2); border-radius:var(--radius); padding:14px; }
+  .s-card .val { font-size:26px; font-weight:600; }
+  .s-card .lbl { font-size:11px; color:var(--text2); margin-top:3px; }
+  .s-card.red .val { color:var(--red-text); }
+  .s-card.amber .val { color:var(--amber-text); }
+  .s-card.green .val { color:var(--green-text); }
+
+  .filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:1rem; align-items:center; }
+  .fb { padding:5px 14px; font-size:12px; border-radius:20px; border:0.5px solid var(--border2); background:var(--surface2); color:var(--text2); cursor:pointer; }
+  .fb.on { border-color:var(--blue); color:var(--blue); background:var(--blue-bg); font-weight:500; }
+  .srch { flex:1; min-width:160px; font-size:13px; padding:5px 12px; border:0.5px solid var(--border2); border-radius:20px; background:var(--surface2); color:var(--text); }
+  .srch:focus { outline:2px solid var(--blue); outline-offset:1px; }
+
+  .company-group { margin-bottom:1.5rem; }
+  .company-header { display:flex; align-items:center; gap:8px; padding:7px 12px; background:var(--surface2); border-radius:var(--radius); margin-bottom:8px; border-left:3px solid var(--blue); }
+  .company-name { font-size:12px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.07em; }
+  .company-count { font-size:11px; color:var(--text3); margin-left:auto; }
+
+  .col-headers { display:grid; grid-template-columns:72px 1fr 90px 80px 96px; gap:10px; padding:3px 14px 6px; align-items:center; }
+  .col-hdr { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.06em; text-align:right; }
+  .col-hdr:nth-child(2) { text-align:left; }
+
+  .hotel-list { display:flex; flex-direction:column; gap:6px; }
+  .hcard { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; }
+  .hcard:hover { border-color:var(--border2); }
+  .hcard-top { display:grid; grid-template-columns:72px 1fr 90px 80px 96px; align-items:center; gap:10px; padding:12px 14px; cursor:pointer; }
+  .hcard-top:hover { background:var(--surface2); }
+
+  .score-ring { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; }
+  .score-ring.red { background:var(--red-bg); color:var(--red-text); }
+  .score-ring.amber { background:var(--amber-bg); color:var(--amber-text); }
+  .score-ring.green { background:var(--green-bg); color:var(--green-text); }
+
+  .score-split { display:flex; flex-direction:column; gap:4px; }
+  .score-mini { display:flex; align-items:center; gap:5px; font-size:11px; padding:3px 7px; border-radius:6px; font-weight:600; }
+  .score-mini .cat { font-size:9px; opacity:.8; width:14px; }
+  .score-mini .num { font-family:var(--mono); font-size:12px; }
+  .score-mini.red { background:var(--red-bg); color:var(--red-text); }
+  .score-mini.amber { background:var(--amber-bg); color:var(--amber-text); }
+  .score-mini.green { background:var(--green-bg); color:var(--green-text); }
+
+  .hinfo { min-width:0; }
+  .hname { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .flags { display:flex; gap:3px; flex-wrap:wrap; margin-top:4px; }
+  .flag { font-size:10px; padding:2px 7px; border-radius:8px; font-weight:600; }
+  .flag.crit { background:var(--red-bg); color:var(--red-text); }
+  .flag.warn { background:var(--amber-bg); color:var(--amber-text); }
+  .flag.info { background:var(--surface2); color:var(--text2); border:0.5px solid var(--border); }
+  .flag.good { background:var(--green-bg); color:var(--green-text); }
+  .flag.foodtag { background:var(--food-bg); color:var(--food-text); }
+  .flag.supptag { background:var(--supp-bg); color:var(--supp-text); }
+
+  .metric-col { text-align:right; }
+  .metric-val { font-size:13px; font-weight:600; font-family:var(--mono); }
+  .metric-lbl { font-size:10px; color:var(--text3); margin-top:1px; }
+  .metric-delta { font-size:10px; margin-top:2px; font-weight:600; }
+  .metric-delta.pos { color:var(--green-text); }
+  .metric-delta.neg { color:var(--red-text); }
+  .metric-delta.flat { color:var(--text3); }
+
+  .bar-col { text-align:right; }
+  .bar-row { display:flex; align-items:center; gap:5px; justify-content:flex-end; margin-bottom:3px; }
+  .bar-cat { font-size:9px; color:var(--text3); width:10px; }
+  .bar-bg { height:5px; border-radius:3px; background:var(--border); overflow:hidden; flex:1; max-width:60px; }
+  .bar-fill { height:100%; border-radius:3px; }
+  .bar-fill.red { background:var(--red); } .bar-fill.amber { background:var(--amber); } .bar-fill.green { background:var(--green); }
+  .bar-lbl { font-size:10px; color:var(--text3); }
+
+  .detail { border-top:0.5px solid var(--border); padding:16px; }
+  .detail-section { margin-bottom:18px; }
+  .detail-section:last-of-type { margin-bottom:14px; }
+  .ds-head { font-size:12px; font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:6px; text-transform:uppercase; letter-spacing:.05em; }
+  .ds-head .pill { font-size:10px; padding:2px 8px; border-radius:10px; font-weight:600; letter-spacing:0; text-transform:none; }
+  .ds-head.food .pill { background:var(--food-bg); color:var(--food-text); }
+  .ds-head.supp .pill { background:var(--supp-bg); color:var(--supp-text); }
+  .period-table { width:100%; font-size:12px; border-collapse:collapse; margin-bottom:12px; }
+  .period-table th { font-weight:600; color:var(--text2); padding:5px 8px; text-align:right; font-size:11px; border-bottom:0.5px solid var(--border); }
+  .period-table th:first-child { text-align:left; }
+  .period-table td { padding:6px 8px; text-align:right; border-bottom:0.5px solid var(--border); }
+  .period-table td:first-child { text-align:left; color:var(--text2); }
+  .period-table tr:last-child td { border-bottom:none; }
+  .delta-pos { color:var(--green-text); } .delta-neg { color:var(--red-text); } .delta-flat { color:var(--text3); }
+  .mini-chart { margin-bottom:6px; }
+  .mini-chart-lbl { font-size:11px; color:var(--text2); margin-bottom:8px; font-weight:500; }
+  .bars3 { display:flex; align-items:flex-end; gap:8px; height:60px; }
+  .b3-wrap { flex:1; display:flex; flex-direction:column; align-items:center; }
+  .b3-inner { width:100%; display:flex; align-items:flex-end; height:48px; }
+  .b3-bar { width:100%; border-radius:4px 4px 0 0; position:relative; min-height:3px; }
+  .b3-val { position:absolute; top:-18px; left:50%; transform:translateX(-50%); font-size:10px; color:var(--text2); white-space:nowrap; }
+  .b3-lbl { font-size:10px; color:var(--text3); text-align:center; margin-top:4px; }
+  .action-row { display:flex; gap:8px; margin-top:6px; }
+  .act-btn { padding:7px 14px; font-size:12px; font-weight:500; border:0.5px solid var(--border2); border-radius:var(--radius); background:transparent; cursor:pointer; color:var(--text2); }
+  .act-btn:hover { background:var(--surface2); color:var(--text); }
+  .act-btn.primary { border-color:var(--blue); color:var(--blue); }
+
+  .lapsed-table { width:100%; border-collapse:collapse; font-size:13px; }
+  .lapsed-table th { text-align:left; font-size:11px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; padding:8px 10px; border-bottom:0.5px solid var(--border); cursor:pointer; }
+  .lapsed-table th:hover { color:var(--text); }
+  .lapsed-table th.num, .lapsed-table td.num { text-align:right; font-family:var(--mono); }
+  .lapsed-table td { padding:10px; border-bottom:0.5px solid var(--border); }
+  .lapsed-table tr:hover td { background:var(--surface2); }
+  .lapsed-user { font-weight:600; }
+  .lapsed-sub { font-size:11px; color:var(--text2); }
+  .lapsed-days { font-size:11px; padding:2px 8px; border-radius:10px; background:var(--amber-bg); color:var(--amber-text); font-weight:600; }
+
+  .empty { text-align:center; padding:4rem 1rem; color:var(--text3); }
+  .empty i { font-size:40px; display:block; margin-bottom:12px; opacity:.3; }
+  .empty a { color:var(--blue); text-decoration:none; }
+  .empty a:hover { text-decoration:underline; }
+  .toast { position:fixed; bottom:1.5rem; right:1.5rem; background:var(--text); color:var(--bg); padding:10px 16px; border-radius:var(--radius); font-size:13px; font-weight:500; opacity:0; pointer-events:none; transition:opacity .2s; z-index:100; }
+  .toast.show { opacity:1; }
+  .note { font-size:12px; color:var(--text2); background:var(--surface2); padding:10px 14px; border-radius:var(--radius); margin-bottom:1.25rem; }
+
+  @media (max-width:640px) {
+    .map-grid { grid-template-columns:1fr; }
+    .summary-row { grid-template-columns:1fr 1fr; }
+    .col-headers, .hcard-top { grid-template-columns:64px 1fr 75px 88px; }
+    .col-headers .col-hdr:nth-child(4), .hcard-top .metric-col:nth-of-type(2) { display:none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="header">
+    <h1><i class="ti ti-building"></i> Hotel health monitor</h1>
+    <p>One row per order · 3 × 30-day periods · food vs supplies split · grouped by company</p>
+  </div>
+
+  <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+    <i class="ti ti-cloud-upload"></i>
+    <div class="lbl">Drop your orders CSV here or click to browse</div>
+    <div class="sub">Needs: property, spend, date, user, vendor · company &amp; status optional</div>
+    <input type="file" id="fileInput" accept=".csv">
+  </div>
+
+  <div id="mapPanel" class="card" style="display:none">
+    <h3><i class="ti ti-columns"></i> Map your columns</h3>
+    <div class="map-grid" id="mapGrid"></div>
+    <button class="run-btn" onclick="runAnalysis()"><i class="ti ti-analyze" style="vertical-align:-2px;margin-right:5px"></i>Analyze 90 days</button>
+  </div>
+
+  <div id="tabBar" class="tabs" style="display:none">
+    <button class="tab on" id="tabDash" onclick="switchTab('dash')">Dashboard</button>
+    <button class="tab" id="tabLapsed" onclick="switchTab('lapsed')">Lapsed users <span class="badge" id="lapsedBadge" style="display:none">0</span></button>
+  </div>
+
+  <div id="dash" style="display:none">
+    <div class="period-bar" id="periodBar"></div>
+    <div class="summary-row" id="summaryRow"></div>
+    <div class="filters">
+      <button class="fb on" onclick="setF('all',this)">All</button>
+      <button class="fb" onclick="setF('red',this)">🔴 At risk</button>
+      <button class="fb" onclick="setF('amber',this)">🟡 Watch</button>
+      <button class="fb" onclick="setF('green',this)">🟢 Healthy</button>
+      <input class="srch" id="srch" placeholder="Search property or company…" oninput="renderDash()">
+    </div>
+    <div id="hotelList"></div>
+  </div>
+
+  <div id="lapsedPage" style="display:none">
+    <div class="note" id="lapsedNote"></div>
+    <div class="filters">
+      <input class="srch" id="lapsedSrch" placeholder="Search user, hotel or company…" oninput="renderLapsed()">
+    </div>
+    <div id="lapsedList"></div>
+  </div>
+
+  <div class="empty" id="emptyMsg">
+    <i class="ti ti-table-import"></i>
+    <p>Upload your orders CSV to begin.<br>
+    <span style="font-size:12px"><a href="#" onclick="loadDemo();return false">Load demo data</a> to see how it works.</span></p>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+let hotels = [], lapsed = [], cols = [], filter = 'all', expanded = null, activeTab = 'dash';
+let lapsedSort = { key: 'spend', dir: 'desc' };
+
+const FOOD_VENDORS = ['sysco','us foods','ben e keith','gordon food service','shamrock foods','nicholas and company','nicholas company','cheney brothers','cheney borthers','keany produce'];
+const BAD_STATUS = ['cancelled','canceled','declined'];
+
+const DEMO = `OrderID,Property,Spend,OrderDate,Company,Vendor,User,Status
+O001,Grand Palace Hotel,1250,2026-05-20,Marriott Group,Sysco,alice@marriott.com,Completed
+O002,Grand Palace Hotel,1400,2026-05-10,Marriott Group,US Foods,bob@marriott.com,Completed
+O003,Grand Palace Hotel,1100,2026-05-02,Marriott Group,Sysco,alice@marriott.com,Completed
+O004,Grand Palace Hotel,890,2026-05-18,Marriott Group,CleanPro,bob@marriott.com,Completed
+O005,Grand Palace Hotel,750,2026-04-28,Marriott Group,TechSupply,carol@marriott.com,Completed
+O006,Grand Palace Hotel,1600,2026-04-20,Marriott Group,Sysco,carol@marriott.com,Completed
+O007,Grand Palace Hotel,1100,2026-04-08,Marriott Group,US Foods,alice@marriott.com,Completed
+O008,Grand Palace Hotel,2200,2026-04-15,Marriott Group,TechSupply,bob@marriott.com,Completed
+O009,Grand Palace Hotel,870,2026-03-28,Marriott Group,CleanPro,carol@marriott.com,Completed
+O010,Grand Palace Hotel,1950,2026-03-20,Marriott Group,Sysco,alice@marriott.com,Completed
+O011,Grand Palace Hotel,1300,2026-03-12,Marriott Group,US Foods,bob@marriott.com,Completed
+O012,Grand Palace Hotel,900,2026-03-05,Marriott Group,CleanPro,carol@marriott.com,Completed
+O013,Sunset Beach Resort,380,2026-05-22,Marriott Group,Shamrock Foods,dave@marriott.com,Completed
+O014,Sunset Beach Resort,510,2026-05-14,Marriott Group,LinenMaster,eve@marriott.com,Completed
+O015,Sunset Beach Resort,480,2026-05-05,Marriott Group,CleanPro,dave@marriott.com,Completed
+O016,Sunset Beach Resort,640,2026-04-18,Marriott Group,Shamrock Foods,dave@marriott.com,Completed
+O017,Sunset Beach Resort,720,2026-04-10,Marriott Group,Sysco,frank@marriott.com,Completed
+O018,Sunset Beach Resort,560,2026-04-02,Marriott Group,LinenMaster,eve@marriott.com,Completed
+O019,Sunset Beach Resort,810,2026-03-30,Marriott Group,Shamrock Foods,frank@marriott.com,Completed
+O020,Sunset Beach Resort,700,2026-03-14,Marriott Group,Sysco,dave@marriott.com,Completed
+O021,Sunset Beach Resort,590,2026-03-08,Marriott Group,CleanPro,eve@marriott.com,Completed
+O022,City Center Inn,3200,2026-05-21,UrbanStay,TechSupply,grace@urban.com,Completed
+O023,City Center Inn,1900,2026-05-11,UrbanStay,HD Supply,henry@urban.com,Completed
+O024,City Center Inn,4100,2026-05-06,UrbanStay,CleanPro,irene@urban.com,Completed
+O025,City Center Inn,2200,2026-04-22,UrbanStay,TechSupply,henry@urban.com,Completed
+O026,City Center Inn,5100,2026-04-14,UrbanStay,HD Supply,irene@urban.com,Completed
+O027,City Center Inn,3800,2026-04-07,UrbanStay,CleanPro,grace@urban.com,Completed
+O028,City Center Inn,4400,2026-03-21,UrbanStay,TechSupply,irene@urban.com,Completed
+O029,City Center Inn,3100,2026-03-13,UrbanStay,HD Supply,grace@urban.com,Completed
+O030,Harbor Lights Hotel,95,2026-05-09,CoastalHotels,Sysco,jack@coastal.com,Completed
+O031,Harbor Lights Hotel,180,2026-05-02,CoastalHotels,CleanPro,jack@coastal.com,Completed
+O032,Harbor Lights Hotel,740,2026-04-19,CoastalHotels,Sysco,kate@coastal.com,Completed
+O033,Harbor Lights Hotel,690,2026-04-11,CoastalHotels,CleanPro,jack@coastal.com,Completed
+O034,Harbor Lights Hotel,1050,2026-03-26,CoastalHotels,Sysco,jack@coastal.com,Completed
+O035,Harbor Lights Hotel,880,2026-03-18,CoastalHotels,CleanPro,kate@coastal.com,Completed
+O036,The Continental,4200,2026-05-24,LuxGroup,US Foods,quinn@lux.com,Completed
+O037,The Continental,5100,2026-05-15,LuxGroup,Sysco,quinn@lux.com,Completed
+O038,The Continental,4600,2026-05-10,LuxGroup,TechSupply,sam@lux.com,Completed
+O039,The Continental,3900,2026-05-04,LuxGroup,CleanPro,rose@lux.com,Completed
+O040,The Continental,4100,2026-04-21,LuxGroup,Sysco,quinn@lux.com,Completed
+O041,The Continental,4800,2026-04-14,LuxGroup,TechSupply,rose@lux.com,Completed
+O042,The Continental,4300,2026-03-22,LuxGroup,US Foods,rose@lux.com,Completed
+O043,The Continental,4900,2026-03-14,LuxGroup,CleanPro,quinn@lux.com,Completed
+O044,Riverside Suites,440,2026-05-21,RiverStay,CleanPro,tina@river.com,Completed
+O045,Riverside Suites,310,2026-05-13,RiverStay,TechSupply,tina@river.com,Completed
+O046,Riverside Suites,2000,2026-05-15,RiverStay,CleanPro,tina@river.com,Cancelled
+O047,Riverside Suites,980,2026-04-18,RiverStay,CleanPro,uma@river.com,Completed
+O048,Riverside Suites,1100,2026-04-10,RiverStay,TechSupply,tina@river.com,Completed
+O049,Riverside Suites,800,2026-04-05,RiverStay,TechSupply,uma@river.com,Declined
+O050,Riverside Suites,1180,2026-03-18,RiverStay,CleanPro,uma@river.com,Completed
+O051,Riverside Suites,920,2026-03-10,RiverStay,TechSupply,tina@river.com,Completed`;
+
+function showToast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+function loadDemo(){ parseCsv(DEMO,'demo_orders.csv'); }
+
+document.getElementById('fileInput').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>parseCsv(ev.target.result,f.name); r.readAsText(f); });
+const zone=document.getElementById('uploadZone');
+zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag');});
+zone.addEventListener('dragleave',()=>zone.classList.remove('drag'));
+zone.addEventListener('drop',e=>{ e.preventDefault();zone.classList.remove('drag'); const f=e.dataTransfer.files[0]; if(!f)return; const r=new FileReader(); r.onload=ev=>parseCsv(ev.target.result,f.name); r.readAsText(f); });
+
+function parseCsv(text,fname){
+  const lines=text.trim().split(/\r?\n/);
+  cols=lines[0].split(',').map(c=>c.trim().replace(/"/g,''));
+  const rows=lines.slice(1).map(l=>{ const v=l.split(',').map(x=>x.trim().replace(/"/g,'')); const o={}; cols.forEach((c,i)=>o[c]=v[i]||''); return o; }).filter(r=>Object.values(r).some(v=>v));
+  window._rows=rows;
+  document.getElementById('uploadZone').innerHTML=`<i class="ti ti-circle-check" style="color:var(--green)"></i><div class="lbl" style="color:var(--green-text)">${fname} — ${rows.length} orders loaded</div><div class="sub">Confirm column mapping below then Analyze</div>`;
+  document.getElementById('emptyMsg').style.display='none';
+  buildMap(); document.getElementById('mapPanel').style.display='block';
+  document.getElementById('tabBar').style.display='none'; document.getElementById('dash').style.display='none'; document.getElementById('lapsedPage').style.display='none';
+}
+
+function autoCol(kws){ return cols.find(c=>kws.some(k=>c.toLowerCase().includes(k)))||''; }
+function selOpts(a){ return ['— skip —',...cols].map(c=>`<option value="${c}"${c===a?' selected':''}>${c}</option>`).join(''); }
+function buildMap(){
+  const fields=[
+    {id:'mProp',label:'Property / hotel name',kw:['property','hotel','name','client']},
+    {id:'mSpend',label:'Order spend / amount',kw:['spend','amount','total','value','price']},
+    {id:'mDate',label:'Order date',kw:['date','placed','created','time']},
+    {id:'mUser',label:'User / contact',kw:['user','contact','email','buyer','person']},
+    {id:'mVendor',label:'Vendor (for food/supplies split)',kw:['vendor','supplier','provider']},
+    {id:'mCompany',label:'Company name',kw:['company','group','chain','org']},
+    {id:'mStatus',label:'Status (to exclude cancelled/declined)',kw:['status','state']},
+  ];
+  document.getElementById('mapGrid').innerHTML=fields.map(f=>`<div class="map-item"><label>${f.label}</label><select id="${f.id}">${selOpts(autoCol(f.kw))}</select></div>`).join('');
+}
+function getC(id){ const el=document.getElementById(id); return el&&el.value!=='— skip —'?el.value:null; }
+
+function parseDate(s){ if(!s)return null; const d=new Date(s); if(!isNaN(d))return d; const p=s.split(/[\/\-\.]/); if(p.length===3){const[a,b,c]=p; if(a.length===4)return new Date(+a,+b-1,+c); return new Date(+c<100?2000+ +c:+c,+a-1,+b);} return null; }
+function normalize(s){ return (s||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim(); }
+function isFood(vendor){ const n=normalize(vendor); return FOOD_VENDORS.some(fv=>n.includes(fv)); }
+function isValidStatus(st){ if(!st) return true; const n=normalize(st); return !BAD_STATUS.some(b=>n===b||n.includes(b)); }
+
+function fmt$(v){ return v>=1000?'$'+(v/1000).toFixed(1)+'k':'$'+Math.round(v); }
+function fmtPct(v){ if(v===null)return'—'; return(v>=0?'+':'')+v.toFixed(1)+'%'; }
+function pct(c,p){ if(!p)return c>0?100:null; return((c-p)/p)*100; }
+function dC(v){ if(v===null)return'delta-flat'; return v>0?'delta-pos':'delta-neg'; }
+function mC(v){ if(v===null)return'flat'; return v>0?'pos':'neg'; }
+function tierOf(score){ return score>=70?'green':score>=40?'amber':'red'; }
+function tierLbl(t){ return t==='green'?'Healthy':t==='amber'?'Watch':'At risk'; }
+
+function scoreFromDeltas(p1,spendP1P2,spendP1P3,usersP1P2){
+  let s=100;
+  if(p1.spend===0&&p1.orders===0){ return 0; }
+  if(spendP1P2!==null) s+=Math.max(-45,Math.min(20,spendP1P2*0.7));
+  if(spendP1P3!==null) s+=Math.max(-25,Math.min(10,spendP1P3*0.4));
+  if(usersP1P2!==null) s+=Math.max(-20,Math.min(8,usersP1P2*0.4));
+  if(p1.users===0) s-=25;
+  return Math.max(0,Math.min(100,Math.round(s)));
+}
+
+function analyzeSet(orders,P,label){
+  function agg(s,e){ const sub=orders.filter(o=>o.date>=s&&o.date<=e); return { spend:sub.reduce((a,o)=>a+o.spend,0), orders:sub.length, users:new Set(sub.map(o=>o.user).filter(Boolean)).size }; }
+  const p1=agg(P.p1start,P.p1end), p2=agg(P.p2start,P.p2end), p3=agg(P.p3start,P.p3end);
+  const spendP1P2=pct(p1.spend,p2.spend), spendP1P3=pct(p1.spend,p3.spend), usersP1P2=pct(p1.users,p2.users), ordersP1P2=pct(p1.orders,p2.orders);
+  const flags=[];
+  if(p1.orders===0&&p2.orders>0) flags.push({t:'crit',l:`No ${label} orders in P1`});
+  else if(p1.orders===0&&p2.orders===0&&p3.orders>0) flags.push({t:'warn',l:`No ${label} 60+ days`});
+  if(p1.spend>0&&spendP1P2!==null){ if(spendP1P2<=-40) flags.push({t:'crit',l:`Spend ▼${Math.abs(spendP1P2).toFixed(0)}% vs P2`}); else if(spendP1P2<=-20) flags.push({t:'warn',l:`Spend ▼${Math.abs(spendP1P2).toFixed(0)}% vs P2`}); }
+  if(spendP1P3!==null&&spendP1P3<=-30&&p1.spend>0) flags.push({t:'crit',l:`Down ${Math.abs(spendP1P3).toFixed(0)}% over 60d`});
+  if(usersP1P2!==null&&usersP1P2<=-30) flags.push({t:'warn',l:`Users ▼${Math.abs(usersP1P2).toFixed(0)}% vs P2`});
+  if(ordersP1P2!==null&&ordersP1P2<=-30&&p1.orders>0&&!flags.find(f=>f.l.includes('Spend'))) flags.push({t:'warn',l:`Orders ▼${Math.abs(ordersP1P2).toFixed(0)}% vs P2`});
+  if(p1.spend>p2.spend&&p2.spend<p3.spend&&p1.spend<p3.spend) flags.push({t:'info',l:'Recovering'});
+  if(spendP1P2!==null&&spendP1P2>=15&&spendP1P3!==null&&spendP1P3>=15&&p1.orders>0) flags.push({t:'good',l:`Growing ▲${spendP1P2.toFixed(0)}%`});
+  const score=scoreFromDeltas(p1,spendP1P2,spendP1P3,usersP1P2);
+  return { p1,p2,p3,spendP1P2,spendP1P3,usersP1P2,ordersP1P2,flags,score,tier:tierOf(score) };
+}
+
+function runAnalysis(){
+  const rows=window._rows;
+  const cProp=getC('mProp'),cSpend=getC('mSpend'),cDate=getC('mDate'),cUser=getC('mUser'),cVendor=getC('mVendor'),cCompany=getC('mCompany'),cStatus=getC('mStatus');
+  if(!cProp||!cSpend||!cDate){ alert('Please map Property, Spend, and Date columns.'); return; }
+
+  let allOrders=rows.map(r=>({
+    prop:r[cProp]||'Unknown', spend:parseFloat(r[cSpend])||0, date:parseDate(r[cDate]),
+    user:cUser?r[cUser]:'', vendor:cVendor?r[cVendor]:'', company:cCompany?r[cCompany]:'Unknown',
+    status:cStatus?r[cStatus]:''
+  })).filter(o=>o.date&&!isNaN(o.date));
+
+  const excluded=allOrders.filter(o=>!isValidStatus(o.status)).length;
+  const orders=allOrders.filter(o=>isValidStatus(o.status));
+  if(!orders.length){ alert('No valid orders found after filtering. Check date/status columns.'); return; }
+
+  const maxDate=new Date(Math.max(...orders.map(o=>o.date)));
+  const P={};
+  P.p1end=maxDate; P.p1start=new Date(maxDate); P.p1start.setDate(P.p1start.getDate()-29);
+  P.p2end=new Date(P.p1start); P.p2end.setDate(P.p2end.getDate()-1); P.p2start=new Date(P.p2end); P.p2start.setDate(P.p2start.getDate()-29);
+  P.p3end=new Date(P.p2start); P.p3end.setDate(P.p3end.getDate()-1); P.p3start=new Date(P.p3end); P.p3start.setDate(P.p3start.getDate()-29);
+  window._P=P;
+  const fmtDate=d=>d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+  document.getElementById('periodBar').innerHTML=`<span style="font-size:12px;color:var(--text2);margin-right:4px">Periods analyzed:</span><span class="period-tag p3">P3: ${fmtDate(P.p3start)}–${fmtDate(P.p3end)}</span><span style="color:var(--text3)">→</span><span class="period-tag p2">P2: ${fmtDate(P.p2start)}–${fmtDate(P.p2end)}</span><span style="color:var(--text3)">→</span><span class="period-tag p1">P1 (latest): ${fmtDate(P.p1start)}–${fmtDate(P.p1end)}</span>${excluded?`<span style="margin-left:auto;font-size:11px">${excluded} cancelled/declined excluded</span>`:''}`;
+
+  const haveVendor=!!cVendor;
+  const propNames=[...new Set(orders.map(o=>o.prop))];
+
+  hotels=propNames.map(prop=>{
+    const all=orders.filter(o=>o.prop===prop);
+    const company=all.find(o=>o.company)?.company||'Unknown';
+    const overallP1=all.filter(o=>o.date>=P.p1start&&o.date<=P.p1end);
+    const overall={ spend:overallP1.reduce((a,o)=>a+o.spend,0), users:new Set(overallP1.map(o=>o.user).filter(Boolean)).size, orders:overallP1.length };
+    const overallSpendP1P2=pct(overall.spend, all.filter(o=>o.date>=P.p2start&&o.date<=P.p2end).reduce((a,o)=>a+o.spend,0));
+    const overallUsersP1P2=pct(overall.users, new Set(all.filter(o=>o.date>=P.p2start&&o.date<=P.p2end).map(o=>o.user).filter(Boolean)).size);
+
+    const foodOrders=haveVendor?all.filter(o=>isFood(o.vendor)):[];
+    const hasFood=foodOrders.length>0;
+    let split=false, food=null, supplies=null, single=null;
+    if(haveVendor&&hasFood){
+      split=true;
+      food=analyzeSet(foodOrders,P,'food');
+      supplies=analyzeSet(all.filter(o=>!isFood(o.vendor)),P,'supplies');
+    } else {
+      single=analyzeSet(all,P,'order');
+    }
+    const sortScore=split?Math.min(food.score,supplies.score):single.score;
+    const tier=tierOf(sortScore);
+    return { prop,company,split,food,supplies,single,overall,overallSpendP1P2,overallUsersP1P2,sortScore,tier };
+  });
+
+  // ---- Lapsed users (valid orders, ordered in days 31-90 but none in last 30) ----
+  const prior60start=P.p3start, prior60end=P.p2end;
+  const byKey={};
+  orders.forEach(o=>{
+    if(!o.user) return;
+    const key=o.user+'||'+o.prop;
+    if(!byKey[key]) byKey[key]={ user:o.user, prop:o.prop, company:o.company, p1count:0, priorCount:0, priorSpend:0, lastDate:null };
+    const rec=byKey[key];
+    if(o.date>=P.p1start&&o.date<=P.p1end) rec.p1count++;
+    if(o.date>=prior60start&&o.date<=prior60end){ rec.priorCount++; rec.priorSpend+=o.spend; if(!rec.lastDate||o.date>rec.lastDate) rec.lastDate=o.date; }
+  });
+  lapsed=Object.values(byKey).filter(r=>r.p1count===0&&r.priorCount>0).map(r=>({ ...r, daysSince:Math.round((maxDate-r.lastDate)/86400000) }));
+
+  // summary
+  const danger=hotels.filter(h=>h.tier==='red').length, warn=hotels.filter(h=>h.tier==='amber').length;
+  const totalSpend=hotels.reduce((a,h)=>a+h.overall.spend,0);
+  document.getElementById('summaryRow').innerHTML=`<div class="s-card"><div class="val">${hotels.length}</div><div class="lbl">Properties tracked</div></div><div class="s-card red"><div class="val">${danger}</div><div class="lbl">At risk</div></div><div class="s-card amber"><div class="val">${warn}</div><div class="lbl">Watch list</div></div><div class="s-card green"><div class="val">$${(totalSpend/1000).toFixed(1)}k</div><div class="lbl">Total spend last 30d</div></div>`;
+
+  const lb=document.getElementById('lapsedBadge');
+  if(lapsed.length){ lb.textContent=lapsed.length; lb.style.display='inline'; } else lb.style.display='none';
+
+  document.getElementById('tabBar').style.display='flex';
+  switchTab('dash');
+  showToast(`${hotels.length} properties · ${lapsed.length} lapsed users`);
+}
+
+function switchTab(t){
+  activeTab=t;
+  document.getElementById('tabDash').classList.toggle('on',t==='dash');
+  document.getElementById('tabLapsed').classList.toggle('on',t==='lapsed');
+  document.getElementById('dash').style.display=t==='dash'?'block':'none';
+  document.getElementById('lapsedPage').style.display=t==='lapsed'?'block':'none';
+  if(t==='dash') renderDash(); else renderLapsed();
+}
+
+function setF(f,btn){ filter=f; document.querySelectorAll('#dash .fb').forEach(b=>b.classList.remove('on')); btn.classList.add('on'); renderDash(); }
+
+function scoreRingHtml(h){
+  if(!h.split) return `<div class="score-ring ${h.single.tier}">${h.single.score}</div>`;
+  return `<div class="score-split">
+    <div class="score-mini ${h.food.tier}"><span class="cat">F</span><span class="num">${h.food.score}</span></div>
+    <div class="score-mini ${h.supplies.tier}"><span class="cat">S</span><span class="num">${h.supplies.score}</span></div>
+  </div>`;
+}
+function healthBarHtml(h){
+  if(!h.split) return `<div class="bar-row"><div class="bar-bg"><div class="bar-fill ${h.single.tier}" style="width:${h.single.score}%"></div></div></div><div class="bar-lbl">${tierLbl(h.single.tier)}</div>`;
+  return `<div class="bar-row"><span class="bar-cat">F</span><div class="bar-bg"><div class="bar-fill ${h.food.tier}" style="width:${h.food.score}%"></div></div></div>
+  <div class="bar-row"><span class="bar-cat">S</span><div class="bar-bg"><div class="bar-fill ${h.supplies.tier}" style="width:${h.supplies.score}%"></div></div></div>`;
+}
+function flagsHtml(h){
+  let out='';
+  if(h.split){
+    out+=h.food.flags.map(f=>`<span class="flag ${f.t==='good'||f.t==='info'?f.t:'foodtag'}">Food ${f.l}</span>`).join('');
+    out+=h.supplies.flags.map(f=>`<span class="flag ${f.t==='good'||f.t==='info'?f.t:'supptag'}">Supplies ${f.l}</span>`).join('');
+    if(!out) out='<span class="flag good">Stable (food &amp; supplies)</span>';
+  } else {
+    out=h.single.flags.map(f=>`<span class="flag ${f.t}">${f.l}</span>`).join('')||(h.single.tier==='green'?'<span class="flag good">Stable</span>':'');
+    out+=' <span class="flag info">Supplies only</span>';
+  }
+  return out;
+}
+
+function periodTable(a,label){
+  return `<table class="period-table">
+    <tr><th>${label}</th><th>P3 (oldest)</th><th>P2</th><th>P1 (latest)</th><th>P1 vs P2</th></tr>
+    <tr><td>Total spend</td><td>${fmt$(a.p3.spend)}</td><td>${fmt$(a.p2.spend)}</td><td>${fmt$(a.p1.spend)}</td><td class="${dC(a.spendP1P2)}">${fmtPct(a.spendP1P2)}</td></tr>
+    <tr><td>Orders placed</td><td>${a.p3.orders}</td><td>${a.p2.orders}</td><td>${a.p1.orders}</td><td class="${dC(a.ordersP1P2)}">${fmtPct(a.ordersP1P2)}</td></tr>
+    <tr><td>Unique users</td><td>${a.p3.users}</td><td>${a.p2.users}</td><td>${a.p1.users}</td><td class="${dC(a.usersP1P2)}">${fmtPct(a.usersP1P2)}</td></tr>
+  </table>`;
+}
+function miniChart(a){
+  const mx=Math.max(a.p3.spend,a.p2.spend,a.p1.spend)||1;
+  return `<div class="mini-chart"><div class="bars3">${[{v:a.p3.spend,l:'P3'},{v:a.p2.spend,l:'P2'},{v:a.p1.spend,l:'P1'}].map(b=>{const ht=Math.max(4,(b.v/mx)*100);const c=b.v>=mx*0.8?'var(--green)':b.v>=mx*0.5?'var(--amber)':'var(--red)';return `<div class="b3-wrap"><div class="b3-inner"><div class="b3-bar" style="height:${ht}%;background:${c}"><div class="b3-val">${fmt$(b.v)}</div></div></div><div class="b3-lbl">${b.l}</div></div>`;}).join('')}</div></div>`;
+}
+function detailHtml(h,propKey){
+  let body='';
+  if(h.split){
+    body+=`<div class="detail-section"><div class="ds-head food"><span class="pill">Food</span> Health ${h.food.score}/100 · ${tierLbl(h.food.tier)}</div>${periodTable(h.food,'Food')}${miniChart(h.food)}</div>`;
+    body+=`<div class="detail-section"><div class="ds-head supp"><span class="pill">Supplies</span> Health ${h.supplies.score}/100 · ${tierLbl(h.supplies.tier)}</div>${periodTable(h.supplies,'Supplies')}${miniChart(h.supplies)}</div>`;
+  } else {
+    body+=`<div class="detail-section">${periodTable(h.single,'Metric')}${miniChart(h.single)}</div>`;
+  }
+  body+=`<div class="action-row"><button class="act-btn primary" onclick="copyPrompt('${propKey}')"><i class="ti ti-clipboard" style="vertical-align:-2px;margin-right:4px"></i>Copy action prompt</button><button class="act-btn" onclick="toggleExp('${propKey}')">Collapse</button></div>`;
+  return `<div class="detail">${body}</div>`;
+}
+
+function renderDash(){
+  const q=(document.getElementById('srch')?.value||'').toLowerCase();
+  let list=hotels.filter(h=>{ if(filter!=='all'&&h.tier!==filter)return false; if(q&&!h.prop.toLowerCase().includes(q)&&!h.company.toLowerCase().includes(q))return false; return true; });
+  if(!list.length){ document.getElementById('hotelList').innerHTML='<div class="empty"><i class="ti ti-search-off"></i><p>No properties match this filter.</p></div>'; return; }
+  const byCompany={}; list.forEach(h=>{ (byCompany[h.company]=byCompany[h.company]||[]).push(h); });
+  const sortedCompanies=Object.keys(byCompany).sort((a,b)=>a.localeCompare(b));
+  sortedCompanies.forEach(c=>byCompany[c].sort((a,b)=>b.sortScore-a.sortScore));
+  const colH=`<div class="col-headers"><div></div><div class="col-hdr" style="text-align:left">Property</div><div class="col-hdr">Total spend</div><div class="col-hdr">Users</div><div class="col-hdr">Health</div></div>`;
+  let html='';
+  sortedCompanies.forEach(company=>{
+    const g=byCompany[company];
+    html+=`<div class="company-group"><div class="company-header"><div class="company-name">${company}</div><div class="company-count">${g.length} propert${g.length===1?'y':'ies'}</div></div>${colH}<div class="hotel-list">`;
+    html+=g.map(h=>{
+      const isExp=expanded===h.prop;
+      const propKey=h.prop.replace(/'/g,"\\'").replace(/"/g,'&quot;');
+      return `<div class="hcard"><div class="hcard-top" onclick="toggleExp('${propKey}')">
+        ${scoreRingHtml(h)}
+        <div class="hinfo"><div class="hname">${h.prop}</div><div class="flags">${flagsHtml(h)}</div></div>
+        <div class="metric-col"><div class="metric-val">${fmt$(h.overall.spend)}</div><div class="metric-lbl">last 30d</div><div class="metric-delta ${mC(h.overallSpendP1P2)}">${fmtPct(h.overallSpendP1P2)} vs P2</div></div>
+        <div class="metric-col"><div class="metric-val">${h.overall.users}</div><div class="metric-lbl">users last 30d</div><div class="metric-delta ${mC(h.overallUsersP1P2)}">${fmtPct(h.overallUsersP1P2)} vs P2</div></div>
+        <div class="bar-col">${healthBarHtml(h)}</div>
+      </div>${isExp?detailHtml(h,propKey):''}</div>`;
+    }).join('');
+    html+=`</div></div>`;
+  });
+  document.getElementById('hotelList').innerHTML=html;
+}
+function toggleExp(p){ expanded=expanded===p?null:p; renderDash(); }
+
+function copyPrompt(prop){
+  const h=hotels.find(x=>x.prop===prop); if(!h) return;
+  let ctx;
+  if(h.split){
+    const ff=h.food.flags.map(f=>f.l).join(', ')||'none'; const sf=h.supplies.flags.map(f=>f.l).join(', ')||'none';
+    ctx=`Property "${h.prop}" (${h.company}). This account orders both FOOD and SUPPLIES, scored separately.\nFOOD — health ${h.food.score}/100, last 30d ${fmt$(h.food.p1.spend)} spend / ${h.food.p1.orders} orders / ${h.food.p1.users} users, spend ${fmtPct(h.food.spendP1P2)} vs prior 30d, ${fmtPct(h.food.spendP1P3)} over 60d. Flags: ${ff}.\nSUPPLIES — health ${h.supplies.score}/100, last 30d ${fmt$(h.supplies.p1.spend)} spend / ${h.supplies.p1.orders} orders / ${h.supplies.p1.users} users, spend ${fmtPct(h.supplies.spendP1P2)} vs prior 30d. Flags: ${sf}.`;
+  } else {
+    const fl=h.single.flags.map(f=>f.l).join(', ')||'none';
+    ctx=`Property "${h.prop}" (${h.company}), supplies only. Health ${h.single.score}/100, last 30d ${fmt$(h.single.p1.spend)} spend / ${h.single.p1.orders} orders / ${h.single.p1.users} users, spend ${fmtPct(h.single.spendP1P2)} vs prior 30d, ${fmtPct(h.single.spendP1P3)} over 60d. Flags: ${fl}.`;
+  }
+  const prompt=ctx+`\n\nWhat are the 3 most impactful actions I should take this week to re-engage this account? Be specific about which category needs attention.`;
+  navigator.clipboard.writeText(prompt).then(()=>showToast('Prompt copied — paste into Claude'));
+}
+
+// ---------- Lapsed users page ----------
+function setLapsedSort(key){
+  if(lapsedSort.key===key) lapsedSort.dir=lapsedSort.dir==='desc'?'asc':'desc';
+  else { lapsedSort.key=key; lapsedSort.dir=key==='user'||key==='prop'||key==='company'?'asc':'desc'; }
+  renderLapsed();
+}
+function renderLapsed(){
+  const note=document.getElementById('lapsedNote');
+  if(!lapsed.length){ note.textContent='No lapsed users — every user who ordered in the prior 60 days has also ordered in the last 30 days.'; document.getElementById('lapsedList').innerHTML=''; return; }
+  const totalAtRisk=lapsed.reduce((a,l)=>a+l.priorSpend,0);
+  note.innerHTML=`<strong>${lapsed.length}</strong> user${lapsed.length===1?'':'s'} placed orders in the prior 60 days (days 31–90) but <strong>none in the last 30 days</strong>. Combined prior-period spend at risk: <strong>${fmt$(totalAtRisk)}</strong>.`;
+
+  const q=(document.getElementById('lapsedSrch')?.value||'').toLowerCase();
+  let list=lapsed.filter(l=>!q||l.user.toLowerCase().includes(q)||l.prop.toLowerCase().includes(q)||l.company.toLowerCase().includes(q));
+  const k=lapsedSort.key, dir=lapsedSort.dir==='asc'?1:-1;
+  list.sort((a,b)=>{ let va=a[k],vb=b[k]; if(k==='lastDate'){va=a.lastDate;vb=b.lastDate;} if(typeof va==='string') return va.localeCompare(vb)*dir; return (va-vb)*dir; });
+
+  const arrow=key=>lapsedSort.key===key?(lapsedSort.dir==='desc'?' ↓':' ↑'):'';
+  const fmtD=d=>d?d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'—';
+  document.getElementById('lapsedList').innerHTML=`<table class="lapsed-table">
+    <thead><tr>
+      <th onclick="setLapsedSort('user')">User${arrow('user')}</th>
+      <th onclick="setLapsedSort('prop')">Hotel${arrow('prop')}</th>
+      <th onclick="setLapsedSort('company')">Company${arrow('company')}</th>
+      <th onclick="setLapsedSort('lastDate')">Last order${arrow('lastDate')}</th>
+      <th class="num" onclick="setLapsedSort('priorCount')">Orders (31–90d)${arrow('priorCount')}</th>
+      <th class="num" onclick="setLapsedSort('priorSpend')">Spend (31–90d)${arrow('priorSpend')}</th>
+    </tr></thead>
+    <tbody>${list.map(l=>`<tr>
+      <td class="lapsed-user">${l.user}</td>
+      <td>${l.prop}</td>
+      <td class="lapsed-sub">${l.company}</td>
+      <td>${fmtD(l.lastDate)} <span class="lapsed-days">${l.daysSince}d ago</span></td>
+      <td class="num">${l.priorCount}</td>
+      <td class="num">${fmt$(l.priorSpend)}</td>
+    </tr>`).join('')}</tbody>
+  </table>`;
+}
+</script>
+</body>
+</html>
