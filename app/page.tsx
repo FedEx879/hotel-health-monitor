@@ -136,6 +136,10 @@ function HealthBar({ hotel }: { hotel: Hotel }) {
 }
 
 function HotelFlags({ hotel }: { hotel: Hotel }) {
+  const lowSpendFlag = hotel.totalSpend90d <= 5000
+    ? <span key="low-spend" className="flag warn">Low Spend</span>
+    : null;
+
   if (hotel.split) {
     const foodFlags = hotel.food!.flags.map((f, i) => (
       <span key={`f${i}`} className={`flag ${f.t === 'good' || f.t === 'info' ? f.t : 'foodtag'}`}>
@@ -148,10 +152,10 @@ function HotelFlags({ hotel }: { hotel: Hotel }) {
       </span>
     ));
     const allFlags = [...foodFlags, ...suppFlags];
-    if (!allFlags.length) {
+    if (!allFlags.length && !lowSpendFlag) {
       return <span className="flag good">Stable (food &amp; supplies)</span>;
     }
-    return <>{allFlags}</>;
+    return <>{allFlags}{lowSpendFlag}</>;
   }
   const flags = hotel.single!.flags.map((f, i) => (
     <span key={i} className={`flag ${f.t}`}>{f.l}</span>
@@ -161,6 +165,7 @@ function HotelFlags({ hotel }: { hotel: Hotel }) {
       {flags.length ? flags : hotel.single!.tier === 'green' ? <span className="flag good">Stable</span> : null}
       {' '}
       <span className="flag info">Supplies only</span>
+      {lowSpendFlag}
     </>
   );
 }
@@ -654,6 +659,7 @@ export default function Home() {
   const [analyzed, setAnalyzed] = useState(false);
   const [dataMinDate, setDataMinDate] = useState<Date | null>(null);
   const [dataMaxDate, setDataMaxDate] = useState<Date | null>(null);
+  const [mtdMonths, setMtdMonths] = useState<[string, string, string]>(['MTD1', 'MTD2', 'MTD3']);
 
   // Settings state
   const [companyRows, setCompanyRows] = useState<CompanyRow[]>([]);
@@ -837,6 +843,12 @@ export default function Home() {
       });
       return next;
     });
+
+    const mx = result.maxDate;
+    const mtd1Month = mx.toLocaleString('en-US', { month: 'short' });
+    const mtd2Month = new Date(mx.getFullYear(), mx.getMonth() - 1, 1).toLocaleString('en-US', { month: 'short' });
+    const mtd3Month = new Date(mx.getFullYear(), mx.getMonth() - 2, 1).toLocaleString('en-US', { month: 'short' });
+    setMtdMonths([mtd1Month, mtd2Month, mtd3Month]);
 
     setHotels(result.hotels);
     setLapsed(result.lapsed);
@@ -1239,9 +1251,9 @@ export default function Home() {
                     <div />
                     <div className="col-hdr" style={{ textAlign: 'left' }}>Property</div>
                     <div className="col-hdr">Total spend</div>
-                    <div className="col-hdr">MTD1</div>
-                    <div className="col-hdr">MTD2</div>
-                    <div className="col-hdr">MTD3</div>
+                    <div className="col-hdr">MTD1<br /><span className="col-hdr-month">{mtdMonths[0]}</span></div>
+                    <div className="col-hdr">MTD2<br /><span className="col-hdr-month">{mtdMonths[1]}</span></div>
+                    <div className="col-hdr">MTD3<br /><span className="col-hdr-month">{mtdMonths[2]}</span></div>
                     <div className="col-hdr">Last order</div>
                     <div className="col-hdr">Users</div>
                     <div className="col-hdr">Health</div>
@@ -1273,15 +1285,15 @@ export default function Home() {
                             </div>
                             <div className="metric-col">
                               <div className="metric-val">{fmt$(h.mtd1)}</div>
-                              <div className="metric-lbl">MTD1</div>
+                              <div className="metric-lbl">{mtdMonths[0]}</div>
                             </div>
                             <div className="metric-col">
                               <div className="metric-val">{fmt$(h.mtd2)}</div>
-                              <div className="metric-lbl">MTD2</div>
+                              <div className="metric-lbl">{mtdMonths[1]}</div>
                             </div>
                             <div className="metric-col">
                               <div className="metric-val">{fmt$(h.mtd3)}</div>
-                              <div className="metric-lbl">MTD3</div>
+                              <div className="metric-lbl">{mtdMonths[2]}</div>
                             </div>
                             <div className="metric-col">
                               <div className="metric-val last-order-val">

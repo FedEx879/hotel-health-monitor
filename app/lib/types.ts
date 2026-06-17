@@ -53,6 +53,7 @@ export interface Hotel {
   csm: string;
   firstOrder: Date | null;
   goLiveDate?: string;
+  totalSpend90d: number;
 }
 
 export interface LapsedUser {

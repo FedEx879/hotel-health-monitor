@@ -461,7 +461,24 @@ export function runAnalysis(
     // Go-live date: read from CSV column lookup built above
     const goLiveDate: string | undefined = propGoLive[prop] || undefined;
 
-    const sortScore = split ? Math.round((food!.score + supplies!.score) / 2) : single!.score;
+    // Total 90-day spend (all orders, all periods combined)
+    const p1All = all.filter((o) => o.date >= P.p1start && o.date <= P.p1end);
+    const p2All = all.filter((o) => o.date >= P.p2start && o.date <= P.p2end);
+    const p3All = all.filter((o) => o.date >= P.p3start && o.date <= P.p3end);
+    const totalSpend90d =
+      p1All.reduce((a, o) => a + o.spend, 0) +
+      p2All.reduce((a, o) => a + o.spend, 0) +
+      p3All.reduce((a, o) => a + o.spend, 0);
+
+    let sortScore = split ? Math.round((food!.score + supplies!.score) / 2) : single!.score;
+
+    // Low Spend flag: if total 90d spend <= $5,000, subtract 30 from sortScore
+    // The flag is rendered in page.tsx by checking hotel.totalSpend90d
+    const lowSpend = totalSpend90d <= 5000;
+    if (lowSpend) {
+      sortScore = Math.max(0, sortScore - 30);
+    }
+
     const tier = tierOf(sortScore);
     return {
       prop,
@@ -482,6 +499,7 @@ export function runAnalysis(
       csm: csmValue,
       firstOrder,
       goLiveDate,
+      totalSpend90d,
     };
   });
 
