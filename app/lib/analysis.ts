@@ -99,9 +99,9 @@ export function normalize(s: string): string {
     .trim();
 }
 
-export function isFood(vendor: string): boolean {
+export function isFood(vendor: string, foodVendors: string[] = FOOD_VENDORS): boolean {
   const n = normalize(vendor);
-  return FOOD_VENDORS.some((fv) => n.includes(fv));
+  return foodVendors.some((fv) => n.includes(fv));
 }
 
 export function isValidStatus(st: string): boolean {
@@ -125,7 +125,7 @@ export function pct(c: number, p: number): number | null {
 }
 
 export function tierOf(score: number): Tier {
-  return score >= 70 ? 'green' : score >= 40 ? 'amber' : 'red';
+  return score >= 75 ? 'green' : score >= 40 ? 'amber' : 'red';
 }
 
 export function tierLbl(t: Tier): string {
@@ -142,22 +142,56 @@ export function mC(v: number | null): string {
   return v > 0 ? 'pos' : 'neg';
 }
 
-export function scoreFromDeltas(
-  p1: PeriodStats,
-  spendP1P2: number | null,
-  spendP1P3: number | null,
-  usersP1P2: number | null
-): number {
-  let s = 100;
-  if (p1.spend === 0 && p1.orders === 0) return 0;
-  if (spendP1P2 !== null) s += Math.max(-45, Math.min(20, spendP1P2 * 0.7));
-  if (spendP1P3 !== null) s += Math.max(-25, Math.min(10, spendP1P3 * 0.4));
-  if (usersP1P2 !== null) s += Math.max(-20, Math.min(8, usersP1P2 * 0.4));
-  if (p1.users === 0) s -= 25;
-  return Math.max(0, Math.min(100, Math.round(s)));
+function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, v));
 }
 
-export function analyzeSet(orders: RawOrder[], P: Period, label: string): SetAnalysis {
+export function scoreFromDeltas(
+  p1: PeriodStats,
+  p2: PeriodStats,
+  p3: PeriodStats,
+  mtd1: number,
+  mtd2: number,
+  mtd3: number
+): number {
+  let score = 100;
+
+  if (p1.spend === 0 && p1.orders === 0) return 0;
+
+  // Metric 1: Total Spend P1 vs Prior60Avg (avg of P2+P3), weight 50%
+  const prior60Avg = (p2.spend + p3.spend) / 2;
+  if (prior60Avg > 0) {
+    const delta = ((p1.spend - prior60Avg) / prior60Avg) * 100;
+    score += clamp(delta * 0.5, -45, 20);
+  }
+
+  // Metric 2: MTD1 vs AVG(MTD2+MTD3), weight 30%
+  const mtdAvg = (mtd2 + mtd3) / 2;
+  if (mtdAvg > 0) {
+    const delta = ((mtd1 - mtdAvg) / mtdAvg) * 100;
+    score += clamp(delta * 0.3, -25, 15);
+  }
+
+  // Metric 3: Users P1 vs P2, weight 20%
+  if (p2.users > 0) {
+    const delta = ((p1.users - p2.users) / p2.users) * 100;
+    score += clamp(delta * 0.2, -20, 8);
+  }
+
+  // Penalty: no users
+  if (p1.users === 0) score -= 25;
+
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+export function analyzeSet(
+  orders: RawOrder[],
+  P: Period,
+  label: string,
+  mtd1: number,
+  mtd2: number,
+  mtd3: number
+): SetAnalysis {
   function agg(s: Date, e: Date): PeriodStats {
     const sub = orders.filter((o) => o.date >= s && o.date <= e);
     return {
@@ -175,40 +209,55 @@ export function analyzeSet(orders: RawOrder[], P: Period, label: string): SetAna
   const ordersP1P2 = pct(p1.orders, p2.orders);
   const flags: SetAnalysis['flags'] = [];
 
-  if (p1.orders === 0 && p2.orders > 0)
-    flags.push({ t: 'crit', l: `No ${label} orders in P1` });
-  else if (p1.orders === 0 && p2.orders === 0 && p3.orders > 0)
-    flags.push({ t: 'warn', l: `No ${label} 60+ days` });
+  // Prior60Avg for flag computations
+  const prior60Avg = (p2.spend + p3.spend) / 2;
+  const spendVsPrior60Avg = prior60Avg > 0 ? ((p1.spend - prior60Avg) / prior60Avg) * 100 : null;
+  const mtdAvg = (mtd2 + mtd3) / 2;
+  const mtd1VsMtdAvg = mtdAvg > 0 ? ((mtd1 - mtdAvg) / mtdAvg) * 100 : null;
 
-  if (p1.spend > 0 && spendP1P2 !== null) {
-    if (spendP1P2 <= -40)
-      flags.push({ t: 'crit', l: `Spend ▼${Math.abs(spendP1P2).toFixed(0)}% vs P2` });
-    else if (spendP1P2 <= -20)
-      flags.push({ t: 'warn', l: `Spend ▼${Math.abs(spendP1P2).toFixed(0)}% vs P2` });
+  // Flags (new logic)
+  if (p1.orders === 0 && (p2.orders > 0 || p3.orders > 0)) {
+    flags.push({ t: 'crit', l: 'No orders in last 30d' });
   }
-  if (spendP1P3 !== null && spendP1P3 <= -30 && p1.spend > 0)
-    flags.push({ t: 'crit', l: `Down ${Math.abs(spendP1P3).toFixed(0)}% over 60d` });
-  if (usersP1P2 !== null && usersP1P2 <= -30)
-    flags.push({ t: 'warn', l: `Users ▼${Math.abs(usersP1P2).toFixed(0)}% vs P2` });
-  if (
-    ordersP1P2 !== null &&
-    ordersP1P2 <= -30 &&
-    p1.orders > 0 &&
-    !flags.find((f) => f.l.includes('Spend'))
-  )
-    flags.push({ t: 'warn', l: `Orders ▼${Math.abs(ordersP1P2).toFixed(0)}% vs P2` });
-  if (p1.spend > p2.spend && p2.spend < p3.spend && p1.spend < p3.spend)
-    flags.push({ t: 'info', l: 'Recovering' });
-  if (
-    spendP1P2 !== null &&
-    spendP1P2 >= 15 &&
-    spendP1P3 !== null &&
-    spendP1P3 >= 15 &&
-    p1.orders > 0
-  )
-    flags.push({ t: 'good', l: `Growing ▲${spendP1P2.toFixed(0)}%` });
 
-  const score = scoreFromDeltas(p1, spendP1P2, spendP1P3, usersP1P2);
+  if (spendVsPrior60Avg !== null && spendVsPrior60Avg <= -40) {
+    flags.push({ t: 'crit', l: `Spend ▼${Math.abs(spendVsPrior60Avg).toFixed(0)}% vs prior avg` });
+  } else if (spendVsPrior60Avg !== null && spendVsPrior60Avg <= -30) {
+    flags.push({ t: 'warn', l: `Spend ▼${Math.abs(spendVsPrior60Avg).toFixed(0)}% vs prior avg` });
+  }
+
+  if (mtd1VsMtdAvg !== null && mtd1VsMtdAvg <= -40) {
+    flags.push({ t: 'crit', l: `MTD ▼${Math.abs(mtd1VsMtdAvg).toFixed(0)}% vs prior months` });
+  } else if (mtd1VsMtdAvg !== null && mtd1VsMtdAvg <= -30) {
+    flags.push({ t: 'warn', l: `MTD ▼${Math.abs(mtd1VsMtdAvg).toFixed(0)}% vs prior months` });
+  }
+
+  if (spendP1P2 !== null && spendP1P2 <= -20) {
+    flags.push({ t: 'warn', l: `Spend ▼${Math.abs(spendP1P2).toFixed(0)}% vs P2` });
+  }
+
+  if (usersP1P2 !== null && usersP1P2 <= -30) {
+    flags.push({ t: 'warn', l: `Users ▼${Math.abs(usersP1P2).toFixed(0)}% vs P2` });
+  }
+
+  if (ordersP1P2 !== null && ordersP1P2 <= -40) {
+    flags.push({ t: 'warn', l: `Orders ▼${Math.abs(ordersP1P2).toFixed(0)}% vs P2` });
+  }
+
+  // Recovery pattern: p1>p2, p2<p3, p1<p3
+  if (p1.spend > p2.spend && p2.spend < p3.spend && p1.spend < p3.spend) {
+    flags.push({ t: 'info', l: 'Recovering' });
+  }
+
+  if (spendVsPrior60Avg !== null && spendVsPrior60Avg >= 15 && p1.orders > 0) {
+    flags.push({ t: 'good', l: `Growing ▲${spendVsPrior60Avg.toFixed(0)}%` });
+  }
+
+  if (mtd1VsMtdAvg !== null && Math.abs(mtd1VsMtdAvg) < 20) {
+    flags.push({ t: 'good', l: 'MTD Stable' });
+  }
+
+  const score = scoreFromDeltas(p1, p2, p3, mtd1, mtd2, mtd3);
   return { p1, p2, p3, spendP1P2, spendP1P3, usersP1P2, ordersP1P2, flags, score, tier: tierOf(score) };
 }
 
@@ -227,11 +276,38 @@ export function parseCsvRows(text: string): { cols: string[]; rows: Record<strin
   return { cols, rows };
 }
 
+/** Compute MTD spend for a property's orders given a reference end date (inclusive)
+ *  and "day-of-month cutoff" for prior months. */
+function computeMtd(
+  orders: RawOrder[],
+  monthsBack: number,
+  refEndDate: Date,
+  cutoffDay: number
+): number {
+  const year = refEndDate.getFullYear();
+  const month = refEndDate.getMonth(); // 0-indexed
+  const targetMonth = month - monthsBack;
+  // Resolve month overflow
+  const d = new Date(year, targetMonth, 1);
+  const mStart = new Date(d.getFullYear(), d.getMonth(), 1);
+  const mEnd = new Date(d.getFullYear(), d.getMonth(), cutoffDay, 23, 59, 59, 999);
+  return orders
+    .filter((o) => o.date >= mStart && o.date <= mEnd)
+    .reduce((s, o) => s + o.spend, 0);
+}
+
+export interface RunAnalysisOptions {
+  excludedCompanies?: Set<string>;
+  foodVendors?: string[];
+}
+
 export function runAnalysis(
   rows: Record<string, string>[],
-  mapping: ColumnMapping
+  mapping: ColumnMapping,
+  options: RunAnalysisOptions = {}
 ): AnalysisResult {
-  const { mProp, mSpend, mDate, mUser, mVendor, mCompany, mStatus } = mapping;
+  const { mProp, mSpend, mDate, mUser, mVendor, mCompany, mStatus, mCsm } = mapping;
+  const { excludedCompanies = new Set<string>(), foodVendors = FOOD_VENDORS } = options;
 
   const allOrders: RawOrder[] = rows
     .map((r) => ({
@@ -242,13 +318,21 @@ export function runAnalysis(
       vendor: mVendor ? r[mVendor] : '',
       company: (mCompany ? r[mCompany] : '') || 'Unknown',
       status: mStatus ? r[mStatus] : '',
+      csm: mCsm ? r[mCsm] : '',
     }))
     .filter((o) => o.date && !isNaN(o.date.getTime()));
 
   const excludedCount = allOrders.filter((o) => !isValidStatus(o.status)).length;
-  const orders = allOrders.filter((o) => isValidStatus(o.status));
+  const validOrders = allOrders.filter((o) => isValidStatus(o.status));
 
+  // Filter out excluded companies
+  const orders = validOrders.filter((o) => !excludedCompanies.has(o.company));
+
+  const minDate = orders.length
+    ? new Date(Math.min(...orders.map((o) => o.date.getTime())))
+    : null;
   const maxDate = new Date(Math.max(...orders.map((o) => o.date.getTime())));
+
   const P: Period = {
     p1end: maxDate,
     p1start: new Date(maxDate),
@@ -267,12 +351,19 @@ export function runAnalysis(
   P.p3start = new Date(P.p3end);
   P.p3start.setDate(P.p3start.getDate() - 29);
 
+  // MTD cutoff: day-of-month of maxDate
+  const mtdCutoffDay = maxDate.getDate();
+
   const haveVendor = !!mVendor;
   const propNames = [...new Set(orders.map((o) => o.prop))];
 
   const hotels: Hotel[] = propNames.map((prop) => {
     const all = orders.filter((o) => o.prop === prop);
     const company = all.find((o) => o.company)?.company || 'Unknown';
+
+    // CSM: use the first non-empty CSM value found, fallback to "Federico Campos"
+    const csmValue = all.find((o) => o.csm && o.csm.trim())?.csm?.trim() || 'Federico Campos';
+
     const overallP1 = all.filter((o) => o.date >= P.p1start && o.date <= P.p1end);
     const overall = {
       spend: overallP1.reduce((a, o) => a + o.spend, 0),
@@ -289,7 +380,24 @@ export function runAnalysis(
       new Set(p2Orders.map((o) => o.user).filter(Boolean)).size
     );
 
-    const foodOrders = haveVendor ? all.filter((o) => isFood(o.vendor)) : [];
+    // MTD values
+    const mtd1 = computeMtd(all, 0, maxDate, mtdCutoffDay);
+    const mtd2 = computeMtd(all, 1, maxDate, mtdCutoffDay);
+    const mtd3 = computeMtd(all, 2, maxDate, mtdCutoffDay);
+
+    // Last order date
+    const lastOrder = all.reduce<Date | null>((best, o) => {
+      if (!best || o.date > best) return o.date;
+      return best;
+    }, null);
+
+    // First order date
+    const firstOrder = all.reduce<Date | null>((oldest, o) => {
+      if (!oldest || o.date < oldest) return o.date;
+      return oldest;
+    }, null);
+
+    const foodOrders = haveVendor ? all.filter((o) => isFood(o.vendor, foodVendors)) : [];
     const hasFood = foodOrders.length > 0;
     let split = false;
     let food: ReturnType<typeof analyzeSet> | null = null;
@@ -298,19 +406,40 @@ export function runAnalysis(
 
     if (haveVendor && hasFood) {
       split = true;
-      food = analyzeSet(foodOrders, P, 'food');
+      food = analyzeSet(foodOrders, P, 'food', mtd1, mtd2, mtd3);
       supplies = analyzeSet(
-        all.filter((o) => !isFood(o.vendor)),
+        all.filter((o) => !isFood(o.vendor, foodVendors)),
         P,
-        'supplies'
+        'supplies',
+        mtd1,
+        mtd2,
+        mtd3
       );
     } else {
-      single = analyzeSet(all, P, 'order');
+      single = analyzeSet(all, P, 'order', mtd1, mtd2, mtd3);
     }
 
     const sortScore = split ? Math.min(food!.score, supplies!.score) : single!.score;
     const tier = tierOf(sortScore);
-    return { prop, company, split, food, supplies, single, overall, overallSpendP1P2, overallUsersP1P2, sortScore, tier };
+    return {
+      prop,
+      company,
+      split,
+      food,
+      supplies,
+      single,
+      overall,
+      overallSpendP1P2,
+      overallUsersP1P2,
+      sortScore,
+      tier,
+      mtd1,
+      mtd2,
+      mtd3,
+      lastOrder,
+      csm: csmValue,
+      firstOrder,
+    };
   });
 
   // Lapsed users
@@ -358,5 +487,5 @@ export function runAnalysis(
       daysSince: Math.round((maxDate.getTime() - (r.lastDate?.getTime() ?? 0)) / 86400000),
     }));
 
-  return { hotels, lapsed, periods: P, excludedCount };
+  return { hotels, lapsed, periods: P, excludedCount, minDate, maxDate };
 }

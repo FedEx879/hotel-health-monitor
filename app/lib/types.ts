@@ -46,6 +46,12 @@ export interface Hotel {
   overallUsersP1P2: number | null;
   sortScore: number;
   tier: Tier;
+  mtd1: number;
+  mtd2: number;
+  mtd3: number;
+  lastOrder: Date | null;
+  csm: string;
+  firstOrder: Date | null;
 }
 
 export interface LapsedUser {
@@ -67,6 +73,7 @@ export interface RawOrder {
   vendor: string;
   company: string;
   status: string;
+  csm: string;
 }
 
 export interface AnalysisResult {
@@ -74,6 +81,8 @@ export interface AnalysisResult {
   lapsed: LapsedUser[];
   periods: Period;
   excludedCount: number;
+  minDate: Date | null;
+  maxDate: Date;
 }
 
 export interface ColumnMapping {
@@ -84,4 +93,5 @@ export interface ColumnMapping {
   mVendor: string | null;
   mCompany: string | null;
   mStatus: string | null;
+  mCsm: string | null;
 }

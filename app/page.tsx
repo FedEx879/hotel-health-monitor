@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Hotel, LapsedUser, Period, ColumnMapping } from './lib/types';
 import {
   DEMO,
+  FOOD_VENDORS,
   parseCsvRows,
   runAnalysis,
   fmt$,
@@ -15,8 +16,10 @@ import {
 } from './lib/analysis';
 
 type Tier = 'red' | 'amber' | 'green';
-type Tab = 'dash' | 'lapsed';
+type Tab = 'dash' | 'lapsed' | 'settings';
 type LapsedSortKey = 'user' | 'prop' | 'company' | 'lastDate' | 'priorCount' | 'priorSpend';
+
+const CSM_OPTIONS = ['Federico Campos', 'Michelle Castro'];
 
 interface FieldDef {
   id: keyof ColumnMapping;
@@ -32,6 +35,7 @@ const FIELDS: FieldDef[] = [
   { id: 'mVendor', label: 'Vendor (for food/supplies split)', kw: ['vendor', 'supplier', 'provider'] },
   { id: 'mCompany', label: 'Company name', kw: ['company', 'group', 'chain', 'org'] },
   { id: 'mStatus', label: 'Status (to exclude cancelled/declined)', kw: ['status', 'state'] },
+  { id: 'mCsm', label: 'CSM Owner', kw: ['csm', 'csm owner', 'account manager', 'owner'] },
 ];
 
 function autoCol(cols: string[], kws: string[]): string {
@@ -47,12 +51,21 @@ function buildInitialMapping(cols: string[]): ColumnMapping {
     mVendor: null,
     mCompany: null,
     mStatus: null,
+    mCsm: null,
   };
   FIELDS.forEach((f) => {
     const found = autoCol(cols, f.kw);
     m[f.id] = found || null;
   });
   return m;
+}
+
+function fmtDDMMMYYYY(d: Date): string {
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function fmtDDMMM(d: Date): string {
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 }
 
 // ---- Sub-components ----
@@ -252,6 +265,129 @@ function HotelDetail({ hotel, onCollapse, onCopyPrompt }: HotelDetailProps) {
   );
 }
 
+// ---- Settings tab sub-components ----
+
+interface CompanyRow {
+  name: string;
+  enabled: boolean;
+  reason: string;
+}
+
+interface VendorRow {
+  name: string;
+  isFood: boolean;
+}
+
+interface SettingsTabProps {
+  companies: CompanyRow[];
+  vendors: VendorRow[];
+  onCompanyChange: (name: string, field: 'enabled' | 'reason', value: boolean | string) => void;
+  onVendorChange: (name: string, isFood: boolean) => void;
+  onSelectAllCompanies: (val: boolean) => void;
+  onSelectAllVendors: (val: boolean) => void;
+}
+
+function SettingsTab({
+  companies,
+  vendors,
+  onCompanyChange,
+  onVendorChange,
+  onSelectAllCompanies,
+  onSelectAllVendors,
+}: SettingsTabProps) {
+  const [companySearch, setCompanySearch] = useState('');
+  const [vendorSearch, setVendorSearch] = useState('');
+
+  const filteredCompanies = companies.filter((c) =>
+    c.name.toLowerCase().includes(companySearch.toLowerCase())
+  );
+  const filteredVendors = vendors.filter((v) =>
+    v.name.toLowerCase().includes(vendorSearch.toLowerCase())
+  );
+
+  return (
+    <div className="settings-tab">
+      {/* Companies section */}
+      <div className="settings-section">
+        <div className="settings-section-header">
+          <h3>Companies</h3>
+          <p className="settings-desc">
+            Uncheck a company to exclude it from the analysis entirely.
+          </p>
+        </div>
+        <div className="settings-toolbar">
+          <input
+            className="srch"
+            placeholder="Search companies…"
+            value={companySearch}
+            onChange={(e) => setCompanySearch(e.target.value)}
+          />
+          <button className="act-btn" onClick={() => onSelectAllCompanies(true)}>Select All</button>
+          <button className="act-btn" onClick={() => onSelectAllCompanies(false)}>Deselect All</button>
+        </div>
+        <div className="settings-list">
+          {filteredCompanies.map((c) => (
+            <div key={c.name} className={`settings-row${!c.enabled ? ' disabled' : ''}`}>
+              <input
+                type="checkbox"
+                checked={c.enabled}
+                onChange={(e) => onCompanyChange(c.name, 'enabled', e.target.checked)}
+              />
+              <span className="settings-name">{c.name}</span>
+              <input
+                type="text"
+                className="settings-reason"
+                placeholder="e.g. Churned, Demo account"
+                value={c.reason}
+                onChange={(e) => onCompanyChange(c.name, 'reason', e.target.value)}
+              />
+            </div>
+          ))}
+          {filteredCompanies.length === 0 && (
+            <div className="settings-empty">No companies match your search.</div>
+          )}
+        </div>
+      </div>
+
+      {/* Vendors section */}
+      <div className="settings-section">
+        <div className="settings-section-header">
+          <h3>Vendors</h3>
+          <p className="settings-desc">
+            Checked vendors are treated as Food vendors for the food/supplies split.
+          </p>
+        </div>
+        <div className="settings-toolbar">
+          <input
+            className="srch"
+            placeholder="Search vendors…"
+            value={vendorSearch}
+            onChange={(e) => setVendorSearch(e.target.value)}
+          />
+          <button className="act-btn" onClick={() => onSelectAllVendors(true)}>Select All</button>
+          <button className="act-btn" onClick={() => onSelectAllVendors(false)}>Deselect All</button>
+        </div>
+        <div className="settings-list">
+          {filteredVendors.map((v) => (
+            <div key={v.name} className="settings-row">
+              <input
+                type="checkbox"
+                checked={v.isFood}
+                onChange={(e) => onVendorChange(v.name, e.target.checked)}
+              />
+              <span className="settings-name">{v.name}</span>
+              {v.isFood && <span className="settings-food-tag">Food</span>}
+            </div>
+          ))}
+          {filteredVendors.length === 0 && (
+            <div className="settings-empty">No vendors match your search.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---- Main page ----
 
 export default function Home() {
@@ -270,6 +406,15 @@ export default function Home() {
   const [periods, setPeriods] = useState<Period | null>(null);
   const [excludedCount, setExcludedCount] = useState(0);
   const [analyzed, setAnalyzed] = useState(false);
+  const [dataMinDate, setDataMinDate] = useState<Date | null>(null);
+  const [dataMaxDate, setDataMaxDate] = useState<Date | null>(null);
+
+  // Settings state
+  const [companyRows, setCompanyRows] = useState<CompanyRow[]>([]);
+  const [vendorRows, setVendorRows] = useState<VendorRow[]>([]);
+
+  // CSM overrides per company (editable in the dashboard)
+  const [csmOverrides, setCsmOverrides] = useState<Record<string, string>>({});
 
   // UI state
   const [activeTab, setActiveTab] = useState<Tab>('dash');
@@ -302,6 +447,8 @@ export default function Home() {
     setAnalyzed(false);
     setHotels([]);
     setLapsed([]);
+    setCompanyRows([]);
+    setVendorRows([]);
   }, []);
 
   const handleFileChange = useCallback(
@@ -342,22 +489,65 @@ export default function Home() {
       alert('Please map Property, Spend, and Date columns.');
       return;
     }
-    const result = runAnalysis(csvRows, mapping);
+
+    // Compute excluded companies from settings
+    const excludedCompanies = new Set(
+      companyRows.filter((c) => !c.enabled).map((c) => c.name)
+    );
+
+    // Compute food vendors from settings (or fallback to FOOD_VENDORS)
+    const activeFoodVendors =
+      vendorRows.length > 0
+        ? vendorRows.filter((v) => v.isFood).map((v) => v.name.toLowerCase())
+        : FOOD_VENDORS;
+
+    const result = runAnalysis(csvRows, mapping, {
+      excludedCompanies,
+      foodVendors: activeFoodVendors,
+    });
+
     if (!result.hotels.length) {
       alert('No valid orders found after filtering. Check date/status columns.');
       return;
     }
+
+    // Initialize settings state from result (only on first run or when no settings yet)
+    if (companyRows.length === 0) {
+      const uniqueCompanies = [...new Set(result.hotels.map((h) => h.company))].sort();
+      setCompanyRows(uniqueCompanies.map((name) => ({ name, enabled: true, reason: '' })));
+    }
+
+    if (vendorRows.length === 0 && mapping.mVendor) {
+      // Extract unique vendors from raw rows
+      const rawVendors = [
+        ...new Set(
+          csvRows
+            .map((r) => (mapping.mVendor ? r[mapping.mVendor] : ''))
+            .filter(Boolean)
+        ),
+      ].sort();
+      const normalized = FOOD_VENDORS;
+      setVendorRows(
+        rawVendors.map((name) => ({
+          name,
+          isFood: normalized.some((fv) => name.toLowerCase().includes(fv)),
+        }))
+      );
+    }
+
     setHotels(result.hotels);
     setLapsed(result.lapsed);
     setPeriods(result.periods);
     setExcludedCount(result.excludedCount);
+    setDataMinDate(result.minDate);
+    setDataMaxDate(result.maxDate);
     setAnalyzed(true);
     setActiveTab('dash');
     setFilter('all');
     setSearch('');
     setExpanded(null);
     showToast(`${result.hotels.length} properties · ${result.lapsed.length} lapsed users`);
-  }, [mapping, csvRows, showToast]);
+  }, [mapping, csvRows, companyRows, vendorRows, showToast]);
 
   const toggleExpanded = useCallback((prop: string) => {
     setExpanded((prev) => (prev === prop ? null : prop));
@@ -413,6 +603,28 @@ export default function Home() {
   const sortedCompanies = Object.keys(byCompany).sort((a, b) => a.localeCompare(b));
   sortedCompanies.forEach((c) => byCompany[c].sort((a, b) => b.sortScore - a.sortScore));
 
+  // Compute "New Onboarding" per company: all hotels have firstOrder within 30 days of dataMaxDate
+  const isNewOnboarding = useCallback(
+    (companyHotels: Hotel[]): boolean => {
+      if (!dataMaxDate || companyHotels.length === 0) return false;
+      return companyHotels.every((h) => {
+        if (!h.firstOrder) return false;
+        const daysDiff = Math.round(
+          (dataMaxDate.getTime() - h.firstOrder.getTime()) / 86400000
+        );
+        return daysDiff <= 30;
+      });
+    },
+    [dataMaxDate]
+  );
+
+  // Compute company average health score
+  const companyAvgScore = useCallback((companyHotels: Hotel[]): number => {
+    if (!companyHotels.length) return 0;
+    const sum = companyHotels.reduce((a, h) => a + h.sortScore, 0);
+    return Math.round(sum / companyHotels.length);
+  }, []);
+
   // Filtered lapsed list
   const filteredLapsed = lapsed
     .filter((l) => {
@@ -443,6 +655,30 @@ export default function Home() {
 
   const arrow = (key: LapsedSortKey) =>
     lapsedSort.key === key ? (lapsedSort.dir === 'desc' ? ' ↓' : ' ↑') : '';
+
+  // Settings handlers
+  const handleCompanyChange = useCallback(
+    (name: string, field: 'enabled' | 'reason', value: boolean | string) => {
+      setCompanyRows((prev) =>
+        prev.map((c) => (c.name === name ? { ...c, [field]: value } : c))
+      );
+    },
+    []
+  );
+
+  const handleVendorChange = useCallback((name: string, isFood: boolean) => {
+    setVendorRows((prev) =>
+      prev.map((v) => (v.name === name ? { ...v, isFood } : v))
+    );
+  }, []);
+
+  const handleSelectAllCompanies = useCallback((val: boolean) => {
+    setCompanyRows((prev) => prev.map((c) => ({ ...c, enabled: val })));
+  }, []);
+
+  const handleSelectAllVendors = useCallback((val: boolean) => {
+    setVendorRows((prev) => prev.map((v) => ({ ...v, isFood: val })));
+  }, []);
 
   return (
     <div className="page">
@@ -539,12 +775,28 @@ export default function Home() {
             Lapsed users
             {lapsed.length > 0 && <span className="badge">{lapsed.length}</span>}
           </button>
+          <button
+            className={`tab${activeTab === 'settings' ? ' on' : ''}`}
+            onClick={() => setActiveTab('settings')}
+          >
+            Settings
+          </button>
         </div>
       )}
 
       {/* Dashboard tab */}
       {analyzed && activeTab === 'dash' && (
         <div>
+          {/* Date range banner */}
+          {dataMinDate && dataMaxDate && (
+            <div className="date-range-banner">
+              Analyzing orders from{' '}
+              <strong>{fmtDDMMMYYYY(dataMinDate)}</strong>
+              {' '}to{' '}
+              <strong>{fmtDDMMMYYYY(dataMaxDate)}</strong>
+            </div>
+          )}
+
           {/* Period bar */}
           {periods && (
             <div className="period-bar">
@@ -618,10 +870,33 @@ export default function Home() {
           ) : (
             sortedCompanies.map((company) => {
               const g = byCompany[company];
+              const newOnboarding = isNewOnboarding(g);
+              const avgScore = companyAvgScore(g);
+              const avgTier = tierOf(avgScore);
+              const companyCsm =
+                csmOverrides[company] ?? (g[0]?.csm || 'Federico Campos');
+
               return (
                 <div key={company} className="company-group">
                   <div className="company-header">
                     <div className="company-name">{company}</div>
+                    {newOnboarding && (
+                      <span className="new-onboarding-badge">New Onboarding</span>
+                    )}
+                    <div className={`company-score ${avgTier}`}>{avgScore}</div>
+                    <div className="company-csm">
+                      <select
+                        value={companyCsm}
+                        onChange={(e) =>
+                          setCsmOverrides((prev) => ({ ...prev, [company]: e.target.value }))
+                        }
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {CSM_OPTIONS.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                    </div>
                     <div className="company-count">
                       {g.length} propert{g.length === 1 ? 'y' : 'ies'}
                     </div>
@@ -630,6 +905,10 @@ export default function Home() {
                     <div />
                     <div className="col-hdr" style={{ textAlign: 'left' }}>Property</div>
                     <div className="col-hdr">Total spend</div>
+                    <div className="col-hdr">MTD1</div>
+                    <div className="col-hdr">MTD2</div>
+                    <div className="col-hdr">MTD3</div>
+                    <div className="col-hdr">Last order</div>
                     <div className="col-hdr">Users</div>
                     <div className="col-hdr">Health</div>
                   </div>
@@ -651,6 +930,23 @@ export default function Home() {
                               <div className="metric-lbl">last 30d</div>
                               <div className={`metric-delta ${mC(h.overallSpendP1P2)}`}>
                                 {fmtPct(h.overallSpendP1P2)} vs P2
+                              </div>
+                            </div>
+                            <div className="metric-col">
+                              <div className="metric-val">{fmt$(h.mtd1)}</div>
+                              <div className="metric-lbl">MTD1</div>
+                            </div>
+                            <div className="metric-col">
+                              <div className="metric-val">{fmt$(h.mtd2)}</div>
+                              <div className="metric-lbl">MTD2</div>
+                            </div>
+                            <div className="metric-col">
+                              <div className="metric-val">{fmt$(h.mtd3)}</div>
+                              <div className="metric-lbl">MTD3</div>
+                            </div>
+                            <div className="metric-col">
+                              <div className="metric-val last-order-val">
+                                {h.lastOrder ? fmtDDMMM(h.lastOrder) : '—'}
                               </div>
                             </div>
                             <div className="metric-col">
@@ -741,6 +1037,18 @@ export default function Home() {
             </>
           )}
         </div>
+      )}
+
+      {/* Settings tab */}
+      {analyzed && activeTab === 'settings' && (
+        <SettingsTab
+          companies={companyRows}
+          vendors={vendorRows}
+          onCompanyChange={handleCompanyChange}
+          onVendorChange={handleVendorChange}
+          onSelectAllCompanies={handleSelectAllCompanies}
+          onSelectAllVendors={handleSelectAllVendors}
+        />
       )}
 
       {/* Empty state */}
