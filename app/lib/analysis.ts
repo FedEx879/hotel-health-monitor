@@ -287,6 +287,7 @@ export interface RunAnalysisOptions {
   excludedCompanies?: Set<string>;
   foodVendors?: string[];
   foodProperties?: Record<string, boolean>;
+  goLiveDates?: Record<string, string>;
   excludedProperties?: Record<string, boolean>;
 }
 
@@ -305,7 +306,7 @@ export function runAnalysis(
   // Auto-detect go-live column if not already in mapping
   const mGoLiveCol: string | null =
     mapping.mGoLive !== undefined ? (mapping.mGoLive ?? null) : null;
-  const { excludedCompanies = new Set<string>(), foodVendors, foodProperties = {}, excludedProperties = {} } = options;
+  const { excludedCompanies = new Set<string>(), foodVendors, foodProperties = {}, excludedProperties = {}, goLiveDates = {} } = options;
   const effectiveFoodVendors = (foodVendors && foodVendors.length > 0) ? foodVendors : FOOD_VENDORS;
 
   const allOrders: RawOrder[] = rows
@@ -472,9 +473,15 @@ export function runAnalysis(
 
     let sortScore = split ? Math.round((food!.score + supplies!.score) / 2) : single!.score;
 
+    // Determine if hotel is New Onboarding: go-live date within last 30 days
+    const effectiveGoLive = goLiveDates[`property:${prop}`] || goLiveDate;
+    const isNewOnboarding = effectiveGoLive
+      ? (maxDate.getTime() - new Date(effectiveGoLive).getTime()) / 86400000 <= 30
+      : false;
+
     // Low Spend flag: if total 90d spend <= $5,000, subtract 30 from sortScore
-    // The flag is rendered in page.tsx by checking hotel.totalSpend90d
-    const lowSpend = totalSpend90d <= 5000;
+    // Skip if hotel is New Onboarding
+    const lowSpend = totalSpend90d <= 5000 && !isNewOnboarding;
     if (lowSpend) {
       sortScore = Math.max(0, sortScore - 30);
     }
@@ -500,6 +507,7 @@ export function runAnalysis(
       firstOrder,
       goLiveDate,
       totalSpend90d,
+      isNewOnboarding,
     };
   });
 

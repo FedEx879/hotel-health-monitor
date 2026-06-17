@@ -136,7 +136,7 @@ function HealthBar({ hotel }: { hotel: Hotel }) {
 }
 
 function HotelFlags({ hotel }: { hotel: Hotel }) {
-  const lowSpendFlag = hotel.totalSpend90d <= 5000
+  const lowSpendFlag = hotel.totalSpend90d <= 5000 && !hotel.isNewOnboarding
     ? <span key="low-spend" className="flag warn">Low Spend</span>
     : null;
 
@@ -767,6 +767,7 @@ export default function Home() {
       foodVendors: activeFoodVendors,
       foodProperties,
       excludedProperties,
+      goLiveDates,
     });
 
     if (!result.hotels.length) {
