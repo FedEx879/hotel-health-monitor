@@ -284,22 +284,34 @@ interface VendorRow {
 interface SettingsTabProps {
   companies: CompanyRow[];
   vendors: VendorRow[];
+  foodProperties: Record<string, boolean>;
   onCompanyChange: (name: string, field: 'enabled' | 'reason', value: boolean | string) => void;
   onVendorChange: (name: string, isFood: boolean) => void;
   onSelectAllCompanies: (val: boolean) => void;
   onSelectAllVendors: (val: boolean) => void;
+  onFoodPropertyChange: (name: string, value: boolean) => void;
+  onSelectAllFoodProperties: (val: boolean) => void;
 }
 
 function SettingsTab({
   companies,
   vendors,
+  foodProperties,
   onCompanyChange,
   onVendorChange,
   onSelectAllCompanies,
   onSelectAllVendors,
+  onFoodPropertyChange,
+  onSelectAllFoodProperties,
 }: SettingsTabProps) {
   const [companySearch, setCompanySearch] = useState('');
   const [vendorSearch, setVendorSearch] = useState('');
+  const [foodSearch, setFoodSearch] = useState('');
+
+  const foodPropEntries = Object.entries(foodProperties).sort(([a], [b]) => a.localeCompare(b));
+  const filteredFoodProps = foodPropEntries.filter(([name]) =>
+    name.toLowerCase().includes(foodSearch.toLowerCase())
+  );
 
   const filteredCompanies = companies.filter((c) =>
     c.name.toLowerCase().includes(companySearch.toLowerCase())
@@ -387,6 +399,48 @@ function SettingsTab({
           )}
         </div>
       </div>
+
+      {/* Food Analysis section */}
+      <div className="settings-section">
+        <div className="settings-section-header">
+          <h3>Food Analysis</h3>
+          <p className="settings-desc">
+            Checked properties will have food and supplies analyzed separately. Unchecked properties are treated as supplies-only.
+          </p>
+        </div>
+        {foodPropEntries.length === 0 ? (
+          <div className="settings-empty">Run an analysis first to see properties here.</div>
+        ) : (
+          <>
+            <div className="settings-toolbar">
+              <input
+                className="srch"
+                placeholder="Search properties…"
+                value={foodSearch}
+                onChange={(e) => setFoodSearch(e.target.value)}
+              />
+              <button className="act-btn" onClick={() => onSelectAllFoodProperties(true)}>Select All</button>
+              <button className="act-btn" onClick={() => onSelectAllFoodProperties(false)}>Deselect All</button>
+            </div>
+            <div className="settings-list">
+              {filteredFoodProps.map(([name, enabled]) => (
+                <div key={name} className="settings-row">
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => onFoodPropertyChange(name, e.target.checked)}
+                  />
+                  <span className="settings-name">{name}</span>
+                  {enabled && <span className="settings-food-tag">Food</span>}
+                </div>
+              ))}
+              {filteredFoodProps.length === 0 && (
+                <div className="settings-empty">No properties match your search.</div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -415,6 +469,7 @@ export default function Home() {
   // Settings state
   const [companyRows, setCompanyRows] = useState<CompanyRow[]>([]);
   const [vendorRows, setVendorRows] = useState<VendorRow[]>([]);
+  const [foodProperties, setFoodProperties] = useState<Record<string, boolean>>({});
 
   // CSM overrides per company (editable in the dashboard)
   const [csmOverrides, setCsmOverrides] = useState<Record<string, string>>({});
@@ -452,6 +507,7 @@ export default function Home() {
     setLapsed([]);
     setCompanyRows([]);
     setVendorRows([]);
+    setFoodProperties({});
   }, []);
 
   const handleFileChange = useCallback(
@@ -507,6 +563,7 @@ export default function Home() {
     const result = runAnalysis(csvRows, mapping, {
       excludedCompanies,
       foodVendors: activeFoodVendors,
+      foodProperties,
     });
 
     if (!result.hotels.length) {
@@ -537,6 +594,18 @@ export default function Home() {
         }))
       );
     }
+
+    // Initialize foodProperties for any property not already in state
+    // (preserves manual overrides on re-runs)
+    setFoodProperties((prev) => {
+      const next = { ...prev };
+      Object.entries(result.propertyFoodSpend).forEach(([prop, spend]) => {
+        if (!(prop in next)) {
+          next[prop] = spend >= 300;
+        }
+      });
+      return next;
+    });
 
     setHotels(result.hotels);
     setLapsed(result.lapsed);
@@ -687,6 +756,18 @@ export default function Home() {
 
   const handleSelectAllVendors = useCallback((val: boolean) => {
     setVendorRows((prev) => prev.map((v) => ({ ...v, isFood: val })));
+  }, []);
+
+  const handleFoodPropertyChange = useCallback((name: string, value: boolean) => {
+    setFoodProperties((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handleSelectAllFoodProperties = useCallback((val: boolean) => {
+    setFoodProperties((prev) => {
+      const next: Record<string, boolean> = {};
+      Object.keys(prev).forEach((k) => { next[k] = val; });
+      return next;
+    });
   }, []);
 
   return (
@@ -1053,10 +1134,13 @@ export default function Home() {
         <SettingsTab
           companies={companyRows}
           vendors={vendorRows}
+          foodProperties={foodProperties}
           onCompanyChange={handleCompanyChange}
           onVendorChange={handleVendorChange}
           onSelectAllCompanies={handleSelectAllCompanies}
           onSelectAllVendors={handleSelectAllVendors}
+          onFoodPropertyChange={handleFoodPropertyChange}
+          onSelectAllFoodProperties={handleSelectAllFoodProperties}
         />
       )}
 

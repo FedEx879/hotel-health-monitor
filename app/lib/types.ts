@@ -83,6 +83,7 @@ export interface AnalysisResult {
   excludedCount: number;
   minDate: Date | null;
   maxDate: Date;
+  propertyFoodSpend: Record<string, number>;
 }
 
 export interface ColumnMapping {

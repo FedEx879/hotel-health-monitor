@@ -286,6 +286,7 @@ function computeMtd(
 export interface RunAnalysisOptions {
   excludedCompanies?: Set<string>;
   foodVendors?: string[];
+  foodProperties?: Record<string, boolean>;
 }
 
 export function runAnalysis(
@@ -294,7 +295,7 @@ export function runAnalysis(
   options: RunAnalysisOptions = {}
 ): AnalysisResult {
   const { mProp, mSpend, mDate, mUser, mVendor, mCompany, mStatus, mCsm } = mapping;
-  const { excludedCompanies = new Set<string>(), foodVendors = FOOD_VENDORS } = options;
+  const { excludedCompanies = new Set<string>(), foodVendors = FOOD_VENDORS, foodProperties = {} } = options;
 
   const allOrders: RawOrder[] = rows
     .map((r) => ({
@@ -385,25 +386,46 @@ export function runAnalysis(
     }, null);
 
     const foodOrders = haveVendor ? all.filter((o) => isFood(o.vendor, foodVendors)) : [];
+    const suppliesOrders = haveVendor ? all.filter((o) => !isFood(o.vendor, foodVendors)) : all;
     const totalFoodSpend = foodOrders.reduce((a, o) => a + o.spend, 0);
-    const hasFood = foodOrders.length > 0 && totalFoodSpend >= 300;
+
+    // MTD split: food-only and supplies-only
+    const mtd1Food = computeMtd(foodOrders, 0, maxDate, mtdCutoffDay);
+    const mtd2Food = computeMtd(foodOrders, 1, maxDate, mtdCutoffDay);
+    const mtd3Food = computeMtd(foodOrders, 2, maxDate, mtdCutoffDay);
+    const mtd1Supplies = computeMtd(suppliesOrders, 0, maxDate, mtdCutoffDay);
+    const mtd2Supplies = computeMtd(suppliesOrders, 1, maxDate, mtdCutoffDay);
+    const mtd3Supplies = computeMtd(suppliesOrders, 2, maxDate, mtdCutoffDay);
+
+    const userWantsFood = foodProperties[prop] === true;
     let split = false;
     let food: ReturnType<typeof analyzeSet> | null = null;
     let supplies: ReturnType<typeof analyzeSet> | null = null;
     let single: ReturnType<typeof analyzeSet> | null = null;
 
-    if (haveVendor && hasFood) {
+    if (userWantsFood) {
       split = true;
-      food = analyzeSet(foodOrders, P, 'food', mtd1, mtd2, mtd3);
-      supplies = analyzeSet(
-        all.filter((o) => !isFood(o.vendor, foodVendors)),
-        P,
-        'supplies',
-        mtd1,
-        mtd2,
-        mtd3
-      );
+      if (totalFoodSpend >= 300 && foodOrders.length > 0) {
+        food = analyzeSet(foodOrders, P, 'food', mtd1Food, mtd2Food, mtd3Food);
+        supplies = analyzeSet(suppliesOrders, P, 'supplies', mtd1Supplies, mtd2Supplies, mtd3Supplies);
+      } else {
+        // Property expected to order food but hasn't (or < $300): zero food + critical flag
+        food = {
+          p1: { spend: 0, orders: 0, users: 0 },
+          p2: { spend: 0, orders: 0, users: 0 },
+          p3: { spend: 0, orders: 0, users: 0 },
+          spendP1P2: null,
+          spendP1P3: null,
+          usersP1P2: null,
+          ordersP1P2: null,
+          flags: [{ t: 'crit' as const, l: 'No food orders' }],
+          score: 0,
+          tier: 'red' as const,
+        };
+        supplies = analyzeSet(all, P, 'supplies', mtd1, mtd2, mtd3);
+      }
     } else {
+      split = false;
       single = analyzeSet(all, P, 'order', mtd1, mtd2, mtd3);
     }
 
@@ -475,5 +497,13 @@ export function runAnalysis(
       daysSince: Math.round((maxDate.getTime() - (r.lastDate?.getTime() ?? 0)) / 86400000),
     }));
 
-  return { hotels, lapsed, periods: P, excludedCount, minDate, maxDate };
+  // Compute total food spend per property across all orders (for initializing foodProperties)
+  const propertyFoodSpend: Record<string, number> = {};
+  propNames.forEach((prop) => {
+    const all = orders.filter((o) => o.prop === prop);
+    const fOrders = haveVendor ? all.filter((o) => isFood(o.vendor, foodVendors)) : [];
+    propertyFoodSpend[prop] = fOrders.reduce((a, o) => a + o.spend, 0);
+  });
+
+  return { hotels, lapsed, periods: P, excludedCount, minDate, maxDate, propertyFoodSpend };
 }
