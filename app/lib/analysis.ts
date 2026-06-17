@@ -295,7 +295,8 @@ export function runAnalysis(
   options: RunAnalysisOptions = {}
 ): AnalysisResult {
   const { mProp, mSpend, mDate, mUser, mVendor, mCompany, mStatus, mCsm } = mapping;
-  const { excludedCompanies = new Set<string>(), foodVendors = FOOD_VENDORS, foodProperties = {} } = options;
+  const { excludedCompanies = new Set<string>(), foodVendors, foodProperties = {} } = options;
+  const effectiveFoodVendors = (foodVendors && foodVendors.length > 0) ? foodVendors : FOOD_VENDORS;
 
   const allOrders: RawOrder[] = rows
     .map((r) => ({
@@ -385,8 +386,8 @@ export function runAnalysis(
       return oldest;
     }, null);
 
-    const foodOrders = haveVendor ? all.filter((o) => isFood(o.vendor, foodVendors)) : [];
-    const suppliesOrders = haveVendor ? all.filter((o) => !isFood(o.vendor, foodVendors)) : all;
+    const foodOrders = haveVendor ? all.filter((o) => isFood(o.vendor, effectiveFoodVendors)) : [];
+    const suppliesOrders = haveVendor ? all.filter((o) => !isFood(o.vendor, effectiveFoodVendors)) : all;
     const totalFoodSpend = foodOrders.reduce((a, o) => a + o.spend, 0);
 
     // MTD split: food-only and supplies-only
@@ -397,7 +398,9 @@ export function runAnalysis(
     const mtd2Supplies = computeMtd(suppliesOrders, 1, maxDate, mtdCutoffDay);
     const mtd3Supplies = computeMtd(suppliesOrders, 2, maxDate, mtdCutoffDay);
 
-    const userWantsFood = foodProperties[prop] === true;
+    const userWantsFood = foodProperties[prop] !== undefined
+      ? foodProperties[prop] === true
+      : (totalFoodSpend >= 300 && foodOrders.length > 0);
     let split = false;
     let food: ReturnType<typeof analyzeSet> | null = null;
     let supplies: ReturnType<typeof analyzeSet> | null = null;
@@ -501,7 +504,7 @@ export function runAnalysis(
   const propertyFoodSpend: Record<string, number> = {};
   propNames.forEach((prop) => {
     const all = orders.filter((o) => o.prop === prop);
-    const fOrders = haveVendor ? all.filter((o) => isFood(o.vendor, foodVendors)) : [];
+    const fOrders = haveVendor ? all.filter((o) => isFood(o.vendor, effectiveFoodVendors)) : [];
     propertyFoodSpend[prop] = fOrders.reduce((a, o) => a + o.spend, 0);
   });
 

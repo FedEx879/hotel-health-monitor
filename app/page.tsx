@@ -293,6 +293,8 @@ interface SettingsTabProps {
   onSelectAllFoodProperties: (val: boolean) => void;
 }
 
+const SETTINGS_PAGE_SIZE = 10;
+
 function SettingsTab({
   companies,
   vendors,
@@ -308,6 +310,10 @@ function SettingsTab({
   const [vendorSearch, setVendorSearch] = useState('');
   const [foodSearch, setFoodSearch] = useState('');
 
+  const [showAllCompanies, setShowAllCompanies] = useState(false);
+  const [showAllVendors, setShowAllVendors] = useState(false);
+  const [showAllFood, setShowAllFood] = useState(false);
+
   const foodPropEntries = Object.entries(foodProperties).sort(([a], [b]) => a.localeCompare(b));
   const filteredFoodProps = foodPropEntries.filter(([name]) =>
     name.toLowerCase().includes(foodSearch.toLowerCase())
@@ -319,6 +325,34 @@ function SettingsTab({
   const filteredVendors = vendors.filter((v) =>
     v.name.toLowerCase().includes(vendorSearch.toLowerCase())
   );
+
+  // Apply 10-item limit only when search box is empty
+  const visibleCompanies =
+    companySearch || showAllCompanies
+      ? filteredCompanies
+      : filteredCompanies.slice(0, SETTINGS_PAGE_SIZE);
+  const hiddenCompanyCount =
+    !companySearch && !showAllCompanies
+      ? Math.max(0, filteredCompanies.length - SETTINGS_PAGE_SIZE)
+      : 0;
+
+  const visibleVendors =
+    vendorSearch || showAllVendors
+      ? filteredVendors
+      : filteredVendors.slice(0, SETTINGS_PAGE_SIZE);
+  const hiddenVendorCount =
+    !vendorSearch && !showAllVendors
+      ? Math.max(0, filteredVendors.length - SETTINGS_PAGE_SIZE)
+      : 0;
+
+  const visibleFoodProps =
+    foodSearch || showAllFood
+      ? filteredFoodProps
+      : filteredFoodProps.slice(0, SETTINGS_PAGE_SIZE);
+  const hiddenFoodCount =
+    !foodSearch && !showAllFood
+      ? Math.max(0, filteredFoodProps.length - SETTINGS_PAGE_SIZE)
+      : 0;
 
   return (
     <div className="settings-tab">
@@ -341,7 +375,7 @@ function SettingsTab({
           <button className="act-btn" onClick={() => onSelectAllCompanies(false)}>Deselect All</button>
         </div>
         <div className="settings-list">
-          {filteredCompanies.map((c) => (
+          {visibleCompanies.map((c) => (
             <div key={c.name} className={`settings-row${!c.enabled ? ' disabled' : ''}`}>
               <input
                 type="checkbox"
@@ -360,6 +394,11 @@ function SettingsTab({
           ))}
           {filteredCompanies.length === 0 && (
             <div className="settings-empty">No companies match your search.</div>
+          )}
+          {hiddenCompanyCount > 0 && (
+            <button className="act-btn settings-show-more" onClick={() => setShowAllCompanies(true)}>
+              Show {hiddenCompanyCount} more
+            </button>
           )}
         </div>
       </div>
@@ -383,7 +422,7 @@ function SettingsTab({
           <button className="act-btn" onClick={() => onSelectAllVendors(false)}>Deselect All</button>
         </div>
         <div className="settings-list">
-          {filteredVendors.map((v) => (
+          {visibleVendors.map((v) => (
             <div key={v.name} className="settings-row">
               <input
                 type="checkbox"
@@ -396,6 +435,11 @@ function SettingsTab({
           ))}
           {filteredVendors.length === 0 && (
             <div className="settings-empty">No vendors match your search.</div>
+          )}
+          {hiddenVendorCount > 0 && (
+            <button className="act-btn settings-show-more" onClick={() => setShowAllVendors(true)}>
+              Show {hiddenVendorCount} more
+            </button>
           )}
         </div>
       </div>
@@ -423,7 +467,7 @@ function SettingsTab({
               <button className="act-btn" onClick={() => onSelectAllFoodProperties(false)}>Deselect All</button>
             </div>
             <div className="settings-list">
-              {filteredFoodProps.map(([name, enabled]) => (
+              {visibleFoodProps.map(([name, enabled]) => (
                 <div key={name} className="settings-row">
                   <input
                     type="checkbox"
@@ -436,6 +480,11 @@ function SettingsTab({
               ))}
               {filteredFoodProps.length === 0 && (
                 <div className="settings-empty">No properties match your search.</div>
+              )}
+              {hiddenFoodCount > 0 && (
+                <button className="act-btn settings-show-more" onClick={() => setShowAllFood(true)}>
+                  Show {hiddenFoodCount} more
+                </button>
               )}
             </div>
           </>
