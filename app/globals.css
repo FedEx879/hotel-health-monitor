@@ -26,8 +26,8 @@
   }
 }
 html, body { height:100%; }
-body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); line-height:1.5; }
-.page { max-width:920px; margin:0 auto; padding:2rem 1.25rem 4rem; }
+body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; background:var(--bg); color:var(--text); line-height:1.5; font-size:103%; }
+.page { max-width:1200px; margin:0 auto; padding:2rem 1.25rem 4rem; }
 
 .header { margin-bottom:1.5rem; }
 .header h1 { font-size:22px; font-weight:600; display:flex; align-items:center; gap:8px; }
@@ -79,14 +79,14 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; backg
 .company-name { font-size:12px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.07em; }
 .company-count { font-size:11px; color:var(--text3); margin-left:auto; }
 
-.col-headers { display:grid; grid-template-columns:72px 1fr 90px 72px 72px 72px 68px 80px 96px; gap:10px; padding:3px 14px 6px; align-items:center; }
+.col-headers { display:grid; grid-template-columns:72px 2fr 90px 72px 72px 72px 68px 80px 96px; gap:10px; padding:3px 14px 6px; align-items:center; }
 .col-hdr { font-size:10px; color:var(--text3); text-transform:uppercase; letter-spacing:.06em; text-align:right; }
 .col-hdr:nth-child(2) { text-align:left; }
 
 .hotel-list { display:flex; flex-direction:column; gap:6px; }
 .hcard { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; }
 .hcard:hover { border-color:var(--border2); }
-.hcard-top { display:grid; grid-template-columns:72px 1fr 90px 72px 72px 72px 68px 80px 96px; align-items:center; gap:10px; padding:12px 14px; cursor:pointer; }
+.hcard-top { display:grid; grid-template-columns:72px 2fr 90px 72px 72px 72px 68px 80px 96px; align-items:center; gap:10px; padding:12px 14px; cursor:pointer; }
 .hcard-top:hover { background:var(--surface2); }
 
 .score-ring { width:44px; height:44px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; }
@@ -95,6 +95,8 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; backg
 .score-ring.green { background:var(--green-bg); color:var(--green-text); }
 
 .score-split { display:flex; flex-direction:column; gap:4px; }
+.score-split-avg { display:flex; flex-direction:column; align-items:center; gap:3px; }
+.score-sub-row { display:flex; gap:3px; }
 .score-mini { display:flex; align-items:center; gap:5px; font-size:11px; padding:3px 7px; border-radius:6px; font-weight:600; }
 .score-mini .cat { font-size:9px; opacity:.8; width:14px; }
 .score-mini .num { font-family:var(--mono); font-size:12px; }
@@ -103,7 +105,7 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; backg
 .score-mini.green { background:var(--green-bg); color:var(--green-text); }
 
 .hinfo { min-width:0; }
-.hname { font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hname { font-size:13px; font-weight:600; }
 .flags { display:flex; gap:3px; flex-wrap:wrap; margin-top:4px; }
 .flag { font-size:10px; padding:2px 7px; border-radius:8px; font-weight:600; }
 .flag.crit { background:var(--red-bg); color:var(--red-text); }

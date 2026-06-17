@@ -75,14 +75,17 @@ function ScoreRing({ hotel }: { hotel: Hotel }) {
     return <div className={`score-ring ${hotel.single!.tier}`}>{hotel.single!.score}</div>;
   }
   return (
-    <div className="score-split">
-      <div className={`score-mini ${hotel.food!.tier}`}>
-        <span className="cat">F</span>
-        <span className="num">{hotel.food!.score}</span>
-      </div>
-      <div className={`score-mini ${hotel.supplies!.tier}`}>
-        <span className="cat">S</span>
-        <span className="num">{hotel.supplies!.score}</span>
+    <div className="score-split-avg">
+      <div className={`score-ring ${hotel.tier}`}>{hotel.sortScore}</div>
+      <div className="score-sub-row">
+        <div className={`score-mini ${hotel.food!.tier}`}>
+          <span className="cat">F</span>
+          <span className="num">{hotel.food!.score}</span>
+        </div>
+        <div className={`score-mini ${hotel.supplies!.tier}`}>
+          <span className="cat">S</span>
+          <span className="num">{hotel.supplies!.score}</span>
+        </div>
       </div>
     </div>
   );
@@ -423,8 +426,8 @@ export default function Home() {
   const [lapsedSearch, setLapsedSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [lapsedSort, setLapsedSort] = useState<{ key: LapsedSortKey; dir: 'asc' | 'desc' }>({
-    key: 'priorSpend',
-    dir: 'desc',
+    key: 'prop',
+    dir: 'asc',
   });
   const [toast, setToast] = useState<string | null>(null);
 
@@ -641,11 +644,17 @@ export default function Home() {
       const dir = lapsedSort.dir === 'asc' ? 1 : -1;
       const va = a[k] as string | number | Date | null;
       const vb = b[k] as string | number | Date | null;
+      let primary: number;
       if (k === 'lastDate') {
-        return ((a.lastDate?.getTime() ?? 0) - (b.lastDate?.getTime() ?? 0)) * dir;
+        primary = ((a.lastDate?.getTime() ?? 0) - (b.lastDate?.getTime() ?? 0)) * dir;
+      } else if (typeof va === 'string' && typeof vb === 'string') {
+        primary = va.localeCompare(vb) * dir;
+      } else {
+        primary = (((va as number) ?? 0) - ((vb as number) ?? 0)) * dir;
       }
-      if (typeof va === 'string' && typeof vb === 'string') return va.localeCompare(vb) * dir;
-      return (((va as number) ?? 0) - ((vb as number) ?? 0)) * dir;
+      if (primary !== 0) return primary;
+      // Secondary sort: by lastDate descending (most recent first)
+      return (b.lastDate?.getTime() ?? 0) - (a.lastDate?.getTime() ?? 0);
     });
 
   const lapsedTotalAtRisk = lapsed.reduce((a, l) => a + l.priorSpend, 0);

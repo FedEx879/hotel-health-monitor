@@ -222,18 +222,10 @@ export function analyzeSet(
 
   if (spendVsPrior60Avg !== null && spendVsPrior60Avg <= -40) {
     flags.push({ t: 'crit', l: `Spend ▼${Math.abs(spendVsPrior60Avg).toFixed(0)}% vs prior avg` });
-  } else if (spendVsPrior60Avg !== null && spendVsPrior60Avg <= -30) {
-    flags.push({ t: 'warn', l: `Spend ▼${Math.abs(spendVsPrior60Avg).toFixed(0)}% vs prior avg` });
   }
 
   if (mtd1VsMtdAvg !== null && mtd1VsMtdAvg <= -40) {
     flags.push({ t: 'crit', l: `MTD ▼${Math.abs(mtd1VsMtdAvg).toFixed(0)}% vs prior months` });
-  } else if (mtd1VsMtdAvg !== null && mtd1VsMtdAvg <= -30) {
-    flags.push({ t: 'warn', l: `MTD ▼${Math.abs(mtd1VsMtdAvg).toFixed(0)}% vs prior months` });
-  }
-
-  if (spendP1P2 !== null && spendP1P2 <= -20) {
-    flags.push({ t: 'warn', l: `Spend ▼${Math.abs(spendP1P2).toFixed(0)}% vs P2` });
   }
 
   if (usersP1P2 !== null && usersP1P2 <= -30) {
@@ -242,11 +234,6 @@ export function analyzeSet(
 
   if (ordersP1P2 !== null && ordersP1P2 <= -40) {
     flags.push({ t: 'warn', l: `Orders ▼${Math.abs(ordersP1P2).toFixed(0)}% vs P2` });
-  }
-
-  // Recovery pattern: p1>p2, p2<p3, p1<p3
-  if (p1.spend > p2.spend && p2.spend < p3.spend && p1.spend < p3.spend) {
-    flags.push({ t: 'info', l: 'Recovering' });
   }
 
   if (spendVsPrior60Avg !== null && spendVsPrior60Avg >= 15 && p1.orders > 0) {
@@ -398,7 +385,8 @@ export function runAnalysis(
     }, null);
 
     const foodOrders = haveVendor ? all.filter((o) => isFood(o.vendor, foodVendors)) : [];
-    const hasFood = foodOrders.length > 0;
+    const totalFoodSpend = foodOrders.reduce((a, o) => a + o.spend, 0);
+    const hasFood = foodOrders.length > 0 && totalFoodSpend >= 300;
     let split = false;
     let food: ReturnType<typeof analyzeSet> | null = null;
     let supplies: ReturnType<typeof analyzeSet> | null = null;
@@ -419,7 +407,7 @@ export function runAnalysis(
       single = analyzeSet(all, P, 'order', mtd1, mtd2, mtd3);
     }
 
-    const sortScore = split ? Math.min(food!.score, supplies!.score) : single!.score;
+    const sortScore = split ? Math.round((food!.score + supplies!.score) / 2) : single!.score;
     const tier = tierOf(sortScore);
     return {
       prop,
