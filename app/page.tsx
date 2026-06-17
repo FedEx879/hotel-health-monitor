@@ -7,6 +7,7 @@ import {
   FOOD_VENDORS,
   parseCsvRows,
   runAnalysis,
+  autoDetectGoLive,
   fmt$,
   fmtPct,
   mC,
@@ -52,6 +53,7 @@ function buildInitialMapping(cols: string[]): ColumnMapping {
     mCompany: null,
     mStatus: null,
     mCsm: null,
+    mGoLive: autoDetectGoLive(cols),
   };
   FIELDS.forEach((f) => {
     const found = autoCol(cols, f.kw);
@@ -62,6 +64,17 @@ function buildInitialMapping(cols: string[]): ColumnMapping {
 
 function fmtDDMMMYYYY(d: Date): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+/** Convert a "YYYY-MM-DD" string to "DD MMM YYYY". Returns empty string if input is invalid. */
+function fmtGoLive(s: string): string {
+  if (!s) return '';
+  // Parse as local date to avoid UTC offset shifting the day
+  const [y, mo, d] = s.split('-').map(Number);
+  if (!y || !mo || !d) return '';
+  const dt = new Date(y, mo - 1, d);
+  if (isNaN(dt.getTime())) return '';
+  return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function fmtDDMMM(d: Date): string {
@@ -287,6 +300,7 @@ interface SettingsTabProps {
   foodProperties: Record<string, boolean>;
   excludedProperties: Record<string, boolean>;
   propertiesByCompany: Record<string, string[]>;
+  goLiveDates: Record<string, string>;
   onCompanyChange: (name: string, field: 'enabled' | 'reason', value: boolean | string) => void;
   onVendorChange: (name: string, isFood: boolean) => void;
   onSelectAllCompanies: (val: boolean) => void;
@@ -294,6 +308,7 @@ interface SettingsTabProps {
   onFoodPropertyChange: (name: string, value: boolean) => void;
   onSelectAllFoodProperties: (val: boolean) => void;
   onPropertyToggle: (prop: string, val: boolean) => void;
+  onGoLiveDateChange: (key: string, value: string) => void;
 }
 
 const SETTINGS_PAGE_SIZE = 10;
@@ -349,6 +364,7 @@ function SettingsTab({
   foodProperties,
   excludedProperties,
   propertiesByCompany,
+  goLiveDates,
   onCompanyChange,
   onVendorChange,
   onSelectAllCompanies,
@@ -356,6 +372,7 @@ function SettingsTab({
   onFoodPropertyChange,
   onSelectAllFoodProperties,
   onPropertyToggle,
+  onGoLiveDateChange,
 }: SettingsTabProps) {
   const [companySearch, setCompanySearch] = useState('');
   const [vendorSearch, setVendorSearch] = useState('');
@@ -470,6 +487,23 @@ function SettingsTab({
                     value={c.reason}
                     onChange={(e) => onCompanyChange(c.name, 'reason', e.target.value)}
                   />
+                  <input
+                    type="date"
+                    className="settings-golive-date"
+                    value={(() => {
+                      const companyKey = `company:${c.name}`;
+                      const propDates = props.map((p) => goLiveDates[`property:${p}`] ?? '');
+                      const allSame = props.length > 0 && propDates.every((d) => d === propDates[0]);
+                      return allSame ? (propDates[0] ?? goLiveDates[companyKey] ?? '') : (goLiveDates[companyKey] ?? '');
+                    })()}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onGoLiveDateChange(`company:${c.name}`, val);
+                      // Cascade to all properties
+                      props.forEach((p) => onGoLiveDateChange(`property:${p}`, val));
+                    }}
+                    title="Go-Live Date"
+                  />
                 </div>
                 {isExpanded && hasProps && (
                   <div className="settings-property-list">
@@ -483,6 +517,13 @@ function SettingsTab({
                             onChange={(e) => onPropertyToggle(prop, e.target.checked)}
                           />
                           <span className="settings-name">{prop}</span>
+                          <input
+                            type="date"
+                            className="settings-golive-date"
+                            value={goLiveDates[`property:${prop}`] ?? ''}
+                            onChange={(e) => onGoLiveDateChange(`property:${prop}`, e.target.value)}
+                            title="Go-Live Date"
+                          />
                         </div>
                       );
                     })}
@@ -623,6 +664,9 @@ export default function Home() {
 
   // CSM overrides per company (editable in the dashboard)
   const [csmOverrides, setCsmOverrides] = useState<Record<string, string>>({});
+
+  // Go-live dates — key = "company:Name" or "property:Name", value = "YYYY-MM-DD" or ""
+  const [goLiveDates, setGoLiveDates] = useState<Record<string, string>>({});
 
   // UI state
   const [activeTab, setActiveTab] = useState<Tab>('dash');
@@ -767,6 +811,32 @@ export default function Home() {
       newPropertiesByCompany[h.company].push(h.prop);
     });
     setPropertiesByCompany(newPropertiesByCompany);
+
+    // Initialize go-live dates from CSV data (only pre-populate, don't overwrite manual entries)
+    setGoLiveDates((prev) => {
+      const next = { ...prev };
+      result.hotels.forEach((h) => {
+        if (h.goLiveDate) {
+          const propKey = `property:${h.prop}`;
+          if (!next[propKey]) next[propKey] = h.goLiveDate;
+        }
+      });
+      // Set company-level if all properties share the same date
+      const companyMap: Record<string, string[]> = {};
+      result.hotels.forEach((h) => {
+        if (!companyMap[h.company]) companyMap[h.company] = [];
+        companyMap[h.company].push(h.prop);
+      });
+      Object.entries(companyMap).forEach(([company, props]) => {
+        const companyKey = `company:${company}`;
+        if (next[companyKey]) return; // already set manually
+        const dates = props.map((p) => next[`property:${p}`] ?? '');
+        if (dates.length > 0 && dates.every((d) => d && d === dates[0])) {
+          next[companyKey] = dates[0];
+        }
+      });
+      return next;
+    });
 
     setHotels(result.hotels);
     setLapsed(result.lapsed);
@@ -933,6 +1003,10 @@ export default function Home() {
       Object.keys(prev).forEach((k) => { next[k] = val; });
       return next;
     });
+  }, []);
+
+  const handleGoLiveDateChange = useCallback((key: string, value: string) => {
+    setGoLiveDates((prev) => ({ ...prev, [key]: value }));
   }, []);
 
   return (
@@ -1154,6 +1228,11 @@ export default function Home() {
                     </div>
                     <div className="company-count">
                       {g.length} propert{g.length === 1 ? 'y' : 'ies'}
+                      {goLiveDates[`company:${company}`] && (
+                        <span className="company-golive">
+                          {' · Go-Live: '}{fmtGoLive(goLiveDates[`company:${company}`])}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="col-headers">
@@ -1176,6 +1255,11 @@ export default function Home() {
                             <ScoreRing hotel={h} />
                             <div className="hinfo">
                               <div className="hname">{h.prop}</div>
+                              {goLiveDates[`property:${h.prop}`] && (
+                                <div className="hotel-golive">
+                                  Go-Live: {fmtGoLive(goLiveDates[`property:${h.prop}`])}
+                                </div>
+                              )}
                               <div className="flags">
                                 <HotelFlags hotel={h} />
                               </div>
@@ -1302,6 +1386,7 @@ export default function Home() {
           foodProperties={foodProperties}
           excludedProperties={excludedProperties}
           propertiesByCompany={propertiesByCompany}
+          goLiveDates={goLiveDates}
           onCompanyChange={handleCompanyChange}
           onVendorChange={handleVendorChange}
           onSelectAllCompanies={handleSelectAllCompanies}
@@ -1309,6 +1394,7 @@ export default function Home() {
           onFoodPropertyChange={handleFoodPropertyChange}
           onSelectAllFoodProperties={handleSelectAllFoodProperties}
           onPropertyToggle={handlePropertyToggle}
+          onGoLiveDateChange={handleGoLiveDateChange}
         />
       )}
 

@@ -52,6 +52,7 @@ export interface Hotel {
   lastOrder: Date | null;
   csm: string;
   firstOrder: Date | null;
+  goLiveDate?: string;
 }
 
 export interface LapsedUser {
@@ -95,4 +96,5 @@ export interface ColumnMapping {
   mCompany: string | null;
   mStatus: string | null;
   mCsm: string | null;
+  mGoLive?: string | null;
 }

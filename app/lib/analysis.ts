@@ -290,12 +290,21 @@ export interface RunAnalysisOptions {
   excludedProperties?: Record<string, boolean>;
 }
 
+const GO_LIVE_KWS = ['go live', 'golive', 'go-live', 'launch date', 'start date'];
+
+export function autoDetectGoLive(cols: string[]): string | null {
+  return cols.find((c) => GO_LIVE_KWS.some((k) => c.toLowerCase().trim() === k)) || null;
+}
+
 export function runAnalysis(
   rows: Record<string, string>[],
   mapping: ColumnMapping,
   options: RunAnalysisOptions = {}
 ): AnalysisResult {
   const { mProp, mSpend, mDate, mUser, mVendor, mCompany, mStatus, mCsm } = mapping;
+  // Auto-detect go-live column if not already in mapping
+  const mGoLiveCol: string | null =
+    mapping.mGoLive !== undefined ? (mapping.mGoLive ?? null) : null;
   const { excludedCompanies = new Set<string>(), foodVendors, foodProperties = {}, excludedProperties = {} } = options;
   const effectiveFoodVendors = (foodVendors && foodVendors.length > 0) ? foodVendors : FOOD_VENDORS;
 
@@ -347,6 +356,18 @@ export function runAnalysis(
 
   // MTD cutoff: day-of-month of maxDate
   const mtdCutoffDay = maxDate.getDate();
+
+  // Build property → go-live date lookup from raw rows (before filtering)
+  const propGoLive: Record<string, string> = {};
+  if (mGoLiveCol) {
+    rows.forEach((r) => {
+      const prop = (mProp ? r[mProp] : '') || 'Unknown';
+      const gl = r[mGoLiveCol]?.trim();
+      if (gl && !propGoLive[prop]) {
+        propGoLive[prop] = gl;
+      }
+    });
+  }
 
   const haveVendor = !!mVendor;
   const propNames = [...new Set(orders.map((o) => o.prop))];
@@ -437,6 +458,9 @@ export function runAnalysis(
       single = analyzeSet(all, P, 'order', mtd1, mtd2, mtd3);
     }
 
+    // Go-live date: read from CSV column lookup built above
+    const goLiveDate: string | undefined = propGoLive[prop] || undefined;
+
     const sortScore = split ? Math.round((food!.score + supplies!.score) / 2) : single!.score;
     const tier = tierOf(sortScore);
     return {
@@ -457,6 +481,7 @@ export function runAnalysis(
       lastOrder,
       csm: csmValue,
       firstOrder,
+      goLiveDate,
     };
   });
 
