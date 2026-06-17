@@ -213,6 +213,17 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; backg
 .settings-empty { font-size:12px; color:var(--text3); padding:12px 10px; text-align:center; }
 .settings-show-more { margin-top:6px; width:100%; font-size:12px; color:var(--blue); border-color:var(--blue-bg); }
 
+/* Property-level breakdown in Companies section */
+.settings-company-row { display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:var(--radius); }
+.settings-company-row:hover { background:var(--surface2); }
+.settings-chevron { background:none; border:none; cursor:pointer; color:var(--text3); font-size:10px; padding:2px 4px; border-radius:4px; transition:transform .15s, color .15s; line-height:1; flex-shrink:0; }
+.settings-chevron:hover:not(:disabled) { color:var(--text); background:var(--surface2); }
+.settings-chevron.expanded { transform:rotate(90deg); }
+.settings-chevron.invisible { visibility:hidden; pointer-events:none; }
+.settings-property-list { display:flex; flex-direction:column; gap:1px; padding-bottom:4px; }
+.settings-property-row { display:flex; align-items:center; gap:10px; padding:5px 10px 5px 44px; border-radius:var(--radius); }
+.settings-property-row:hover { background:var(--surface2); }
+
 @media (max-width:640px) {
   .map-grid { grid-template-columns:1fr; }
   .summary-row { grid-template-columns:1fr 1fr; }

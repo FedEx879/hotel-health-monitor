@@ -285,26 +285,77 @@ interface SettingsTabProps {
   companies: CompanyRow[];
   vendors: VendorRow[];
   foodProperties: Record<string, boolean>;
+  excludedProperties: Record<string, boolean>;
+  propertiesByCompany: Record<string, string[]>;
   onCompanyChange: (name: string, field: 'enabled' | 'reason', value: boolean | string) => void;
   onVendorChange: (name: string, isFood: boolean) => void;
   onSelectAllCompanies: (val: boolean) => void;
   onSelectAllVendors: (val: boolean) => void;
   onFoodPropertyChange: (name: string, value: boolean) => void;
   onSelectAllFoodProperties: (val: boolean) => void;
+  onPropertyToggle: (prop: string, val: boolean) => void;
 }
 
 const SETTINGS_PAGE_SIZE = 10;
+
+function CompanyCheckbox({
+  company,
+  props,
+  excludedProperties,
+  onCompanyChange,
+  onPropertyToggle,
+}: {
+  company: CompanyRow;
+  props: string[];
+  excludedProperties: Record<string, boolean>;
+  onCompanyChange: (name: string, field: 'enabled' | 'reason', value: boolean | string) => void;
+  onPropertyToggle: (prop: string, val: boolean) => void;
+}) {
+  const checkRef = useRef<HTMLInputElement>(null);
+  const enabledProps = props.filter((p) => excludedProperties[p] !== false);
+  const allChecked = enabledProps.length === props.length;
+  const noneChecked = enabledProps.length === 0;
+  const indeterminate = !allChecked && !noneChecked;
+
+  useEffect(() => {
+    if (checkRef.current) {
+      checkRef.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
+
+  function handleChange() {
+    if (allChecked || indeterminate) {
+      // uncheck all
+      props.forEach((p) => onPropertyToggle(p, false));
+    } else {
+      // check all
+      props.forEach((p) => onPropertyToggle(p, true));
+    }
+  }
+
+  return (
+    <input
+      ref={checkRef}
+      type="checkbox"
+      checked={allChecked}
+      onChange={handleChange}
+    />
+  );
+}
 
 function SettingsTab({
   companies,
   vendors,
   foodProperties,
+  excludedProperties,
+  propertiesByCompany,
   onCompanyChange,
   onVendorChange,
   onSelectAllCompanies,
   onSelectAllVendors,
   onFoodPropertyChange,
   onSelectAllFoodProperties,
+  onPropertyToggle,
 }: SettingsTabProps) {
   const [companySearch, setCompanySearch] = useState('');
   const [vendorSearch, setVendorSearch] = useState('');
@@ -313,6 +364,12 @@ function SettingsTab({
   const [showAllCompanies, setShowAllCompanies] = useState(false);
   const [showAllVendors, setShowAllVendors] = useState(false);
   const [showAllFood, setShowAllFood] = useState(false);
+
+  const [expandedCompanies, setExpandedCompanies] = useState<Record<string, boolean>>({});
+
+  function toggleCompanyExpand(name: string) {
+    setExpandedCompanies((prev) => ({ ...prev, [name]: !prev[name] }));
+  }
 
   const foodPropEntries = Object.entries(foodProperties).sort(([a], [b]) => a.localeCompare(b));
   const filteredFoodProps = foodPropEntries.filter(([name]) =>
@@ -375,23 +432,65 @@ function SettingsTab({
           <button className="act-btn" onClick={() => onSelectAllCompanies(false)}>Deselect All</button>
         </div>
         <div className="settings-list">
-          {visibleCompanies.map((c) => (
-            <div key={c.name} className={`settings-row${!c.enabled ? ' disabled' : ''}`}>
-              <input
-                type="checkbox"
-                checked={c.enabled}
-                onChange={(e) => onCompanyChange(c.name, 'enabled', e.target.checked)}
-              />
-              <span className="settings-name">{c.name}</span>
-              <input
-                type="text"
-                className="settings-reason"
-                placeholder="e.g. Churned, Demo account"
-                value={c.reason}
-                onChange={(e) => onCompanyChange(c.name, 'reason', e.target.value)}
-              />
-            </div>
-          ))}
+          {visibleCompanies.map((c) => {
+            const props = propertiesByCompany[c.name] || [];
+            const isExpanded = !!expandedCompanies[c.name];
+            const hasProps = props.length > 0;
+            return (
+              <div key={c.name}>
+                <div className={`settings-row settings-company-row${!c.enabled ? ' disabled' : ''}`}>
+                  <button
+                    className={`settings-chevron${isExpanded ? ' expanded' : ''}${!hasProps ? ' invisible' : ''}`}
+                    onClick={() => hasProps && toggleCompanyExpand(c.name)}
+                    aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                    disabled={!hasProps}
+                  >
+                    ▶
+                  </button>
+                  {hasProps ? (
+                    <CompanyCheckbox
+                      company={c}
+                      props={props}
+                      excludedProperties={excludedProperties}
+                      onCompanyChange={onCompanyChange}
+                      onPropertyToggle={onPropertyToggle}
+                    />
+                  ) : (
+                    <input
+                      type="checkbox"
+                      checked={c.enabled}
+                      onChange={(e) => onCompanyChange(c.name, 'enabled', e.target.checked)}
+                    />
+                  )}
+                  <span className="settings-name">{c.name}</span>
+                  <input
+                    type="text"
+                    className="settings-reason"
+                    placeholder="e.g. Churned, Demo account"
+                    value={c.reason}
+                    onChange={(e) => onCompanyChange(c.name, 'reason', e.target.value)}
+                  />
+                </div>
+                {isExpanded && hasProps && (
+                  <div className="settings-property-list">
+                    {props.map((prop) => {
+                      const included = excludedProperties[prop] !== false;
+                      return (
+                        <div key={prop} className="settings-property-row">
+                          <input
+                            type="checkbox"
+                            checked={included}
+                            onChange={(e) => onPropertyToggle(prop, e.target.checked)}
+                          />
+                          <span className="settings-name">{prop}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
           {filteredCompanies.length === 0 && (
             <div className="settings-empty">No companies match your search.</div>
           )}
@@ -519,6 +618,8 @@ export default function Home() {
   const [companyRows, setCompanyRows] = useState<CompanyRow[]>([]);
   const [vendorRows, setVendorRows] = useState<VendorRow[]>([]);
   const [foodProperties, setFoodProperties] = useState<Record<string, boolean>>({});
+  const [excludedProperties, setExcludedProperties] = useState<Record<string, boolean>>({});
+  const [propertiesByCompany, setPropertiesByCompany] = useState<Record<string, string[]>>({});
 
   // CSM overrides per company (editable in the dashboard)
   const [csmOverrides, setCsmOverrides] = useState<Record<string, string>>({});
@@ -557,6 +658,8 @@ export default function Home() {
     setCompanyRows([]);
     setVendorRows([]);
     setFoodProperties({});
+    setExcludedProperties({});
+    setPropertiesByCompany({});
   }, []);
 
   const handleFileChange = useCallback(
@@ -613,6 +716,7 @@ export default function Home() {
       excludedCompanies,
       foodVendors: activeFoodVendors,
       foodProperties,
+      excludedProperties,
     });
 
     if (!result.hotels.length) {
@@ -655,6 +759,14 @@ export default function Home() {
       });
       return next;
     });
+
+    // Derive propertiesByCompany from result
+    const newPropertiesByCompany: Record<string, string[]> = {};
+    result.hotels.forEach((h) => {
+      if (!newPropertiesByCompany[h.company]) newPropertiesByCompany[h.company] = [];
+      newPropertiesByCompany[h.company].push(h.prop);
+    });
+    setPropertiesByCompany(newPropertiesByCompany);
 
     setHotels(result.hotels);
     setLapsed(result.lapsed);
@@ -809,6 +921,10 @@ export default function Home() {
 
   const handleFoodPropertyChange = useCallback((name: string, value: boolean) => {
     setFoodProperties((prev) => ({ ...prev, [name]: value }));
+  }, []);
+
+  const handlePropertyToggle = useCallback((prop: string, val: boolean) => {
+    setExcludedProperties((prev) => ({ ...prev, [prop]: val }));
   }, []);
 
   const handleSelectAllFoodProperties = useCallback((val: boolean) => {
@@ -1184,12 +1300,15 @@ export default function Home() {
           companies={companyRows}
           vendors={vendorRows}
           foodProperties={foodProperties}
+          excludedProperties={excludedProperties}
+          propertiesByCompany={propertiesByCompany}
           onCompanyChange={handleCompanyChange}
           onVendorChange={handleVendorChange}
           onSelectAllCompanies={handleSelectAllCompanies}
           onSelectAllVendors={handleSelectAllVendors}
           onFoodPropertyChange={handleFoodPropertyChange}
           onSelectAllFoodProperties={handleSelectAllFoodProperties}
+          onPropertyToggle={handlePropertyToggle}
         />
       )}
 

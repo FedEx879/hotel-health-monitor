@@ -287,6 +287,7 @@ export interface RunAnalysisOptions {
   excludedCompanies?: Set<string>;
   foodVendors?: string[];
   foodProperties?: Record<string, boolean>;
+  excludedProperties?: Record<string, boolean>;
 }
 
 export function runAnalysis(
@@ -295,7 +296,7 @@ export function runAnalysis(
   options: RunAnalysisOptions = {}
 ): AnalysisResult {
   const { mProp, mSpend, mDate, mUser, mVendor, mCompany, mStatus, mCsm } = mapping;
-  const { excludedCompanies = new Set<string>(), foodVendors, foodProperties = {} } = options;
+  const { excludedCompanies = new Set<string>(), foodVendors, foodProperties = {}, excludedProperties = {} } = options;
   const effectiveFoodVendors = (foodVendors && foodVendors.length > 0) ? foodVendors : FOOD_VENDORS;
 
   const allOrders: RawOrder[] = rows
@@ -314,8 +315,12 @@ export function runAnalysis(
   const excludedCount = allOrders.filter((o) => !isValidStatus(o.status)).length;
   const validOrders = allOrders.filter((o) => isValidStatus(o.status));
 
-  // Filter out excluded companies
-  const orders = validOrders.filter((o) => !excludedCompanies.has(o.company));
+  // Filter out excluded companies and excluded properties
+  const orders = validOrders.filter(
+    (o) =>
+      !excludedCompanies.has(o.company) &&
+      excludedProperties[o.prop] !== false
+  );
 
   const minDate = orders.length
     ? new Date(Math.min(...orders.map((o) => o.date.getTime())))
