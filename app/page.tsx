@@ -1288,15 +1288,12 @@ export default function Home() {
                             </div>
                             <div className="metric-col">
                               <div className="metric-val">{fmt$(h.mtd1)}</div>
-                              <div className="metric-lbl">{mtdMonths[0]}</div>
                             </div>
                             <div className="metric-col">
                               <div className="metric-val">{fmt$(h.mtd2)}</div>
-                              <div className="metric-lbl">{mtdMonths[1]}</div>
                             </div>
                             <div className="metric-col">
                               <div className="metric-val">{fmt$(h.mtd3)}</div>
-                              <div className="metric-lbl">{mtdMonths[2]}</div>
                             </div>
                             <div className="metric-col">
                               <div className="metric-val last-order-val">
