@@ -180,32 +180,32 @@ function PeriodTable({ a, label }: PeriodTableProps) {
       <thead>
         <tr>
           <th>{label}</th>
-          <th>P3 (oldest)</th>
-          <th>P2</th>
           <th>P1 (latest)</th>
+          <th>P2</th>
+          <th>P3 (oldest)</th>
           <th>P1 vs P2</th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <td>Total spend</td>
-          <td>{fmt$(a.p3.spend)}</td>
-          <td>{fmt$(a.p2.spend)}</td>
           <td>{fmt$(a.p1.spend)}</td>
+          <td>{fmt$(a.p2.spend)}</td>
+          <td>{fmt$(a.p3.spend)}</td>
           <td className={dC(a.spendP1P2)}>{fmtPct(a.spendP1P2)}</td>
         </tr>
         <tr>
           <td>Orders placed</td>
-          <td>{a.p3.orders}</td>
-          <td>{a.p2.orders}</td>
           <td>{a.p1.orders}</td>
+          <td>{a.p2.orders}</td>
+          <td>{a.p3.orders}</td>
           <td className={dC(a.ordersP1P2)}>{fmtPct(a.ordersP1P2)}</td>
         </tr>
         <tr>
           <td>Unique users</td>
-          <td>{a.p3.users}</td>
-          <td>{a.p2.users}</td>
           <td>{a.p1.users}</td>
+          <td>{a.p2.users}</td>
+          <td>{a.p3.users}</td>
           <td className={dC(a.usersP1P2)}>{fmtPct(a.usersP1P2)}</td>
         </tr>
       </tbody>
@@ -845,10 +845,13 @@ export default function Home() {
     });
 
     const mx = result.maxDate;
-    const mtd1Month = mx.toLocaleString('en-US', { month: 'short' });
-    const mtd2Month = new Date(mx.getFullYear(), mx.getMonth() - 1, 1).toLocaleString('en-US', { month: 'short' });
-    const mtd3Month = new Date(mx.getFullYear(), mx.getMonth() - 2, 1).toLocaleString('en-US', { month: 'short' });
-    setMtdMonths([mtd1Month, mtd2Month, mtd3Month]);
+    const endDay = mx.getDate();
+    const mtd1Range = `${mx.toLocaleString('en-US', { month: 'short' })} 1 – ${mx.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
+    const mtd2End = new Date(mx.getFullYear(), mx.getMonth() - 1, endDay);
+    const mtd2Range = `${mtd2End.toLocaleString('en-US', { month: 'short' })} 1 – ${mtd2End.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
+    const mtd3End = new Date(mx.getFullYear(), mx.getMonth() - 2, endDay);
+    const mtd3Range = `${mtd3End.toLocaleString('en-US', { month: 'short' })} 1 – ${mtd3End.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
+    setMtdMonths([mtd1Range, mtd2Range, mtd3Range]);
 
     setHotels(result.hotels);
     setLapsed(result.lapsed);
