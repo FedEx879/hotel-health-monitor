@@ -55,6 +55,7 @@ export interface Hotel {
   goLiveDate?: string;
   totalSpend90d: number;
   isNewOnboarding: boolean;
+  lowSpend: 'crit' | 'warn' | null;
 }
 
 export interface LapsedUser {

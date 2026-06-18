@@ -479,11 +479,14 @@ export function runAnalysis(
       ? (maxDate.getTime() - new Date(effectiveGoLive).getTime()) / 86400000 <= 30
       : false;
 
-    // Low Spend flag: if total 90d spend <= $5,000, subtract 30 from sortScore
-    // Skip if hotel is New Onboarding
-    const lowSpend = totalSpend90d <= 5000 && !isNewOnboarding;
+    // Low Spend penalty — skipped for New Onboarding hotels
+    // < $3000: critical red, -100 pts
+    // < $5000: warning yellow, -70 pts
+    const lowSpend = !isNewOnboarding && totalSpend90d < 5000
+      ? (totalSpend90d < 3000 ? 'crit' : 'warn')
+      : null;
     if (lowSpend) {
-      sortScore = Math.max(0, sortScore - 30);
+      sortScore = Math.max(0, sortScore - (lowSpend === 'crit' ? 100 : 70));
     }
 
     const tier = tierOf(sortScore);
@@ -508,6 +511,7 @@ export function runAnalysis(
       goLiveDate,
       totalSpend90d,
       isNewOnboarding,
+      lowSpend,
     };
   });
 

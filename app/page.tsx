@@ -136,8 +136,8 @@ function HealthBar({ hotel }: { hotel: Hotel }) {
 }
 
 function HotelFlags({ hotel }: { hotel: Hotel }) {
-  const lowSpendFlag = hotel.totalSpend90d <= 5000 && !hotel.isNewOnboarding
-    ? <span key="low-spend" className="flag warn">Low Spend</span>
+  const lowSpendFlag = hotel.lowSpend
+    ? <span key="low-spend" className={`flag ${hotel.lowSpend === 'crit' ? 'crit' : 'warn'}`}>Low Spend</span>
     : null;
 
   if (hotel.split) {
@@ -314,6 +314,7 @@ interface SettingsTabProps {
   onSelectAllFoodProperties: (val: boolean) => void;
   onPropertyToggle: (prop: string, val: boolean) => void;
   onGoLiveDateChange: (key: string, value: string) => void;
+  onSave: () => void;
 }
 
 const SETTINGS_PAGE_SIZE = 10;
@@ -378,6 +379,7 @@ function SettingsTab({
   onSelectAllFoodProperties,
   onPropertyToggle,
   onGoLiveDateChange,
+  onSave,
 }: SettingsTabProps) {
   const [companySearch, setCompanySearch] = useState('');
   const [vendorSearch, setVendorSearch] = useState('');
@@ -634,6 +636,11 @@ function SettingsTab({
             </div>
           </>
         )}
+      </div>
+      <div style={{ padding: '1.25rem', borderTop: '0.5px solid var(--border)' }}>
+        <button className="run-btn" onClick={onSave}>
+          Save &amp; Re-analyze
+        </button>
       </div>
     </div>
   );
@@ -1408,6 +1415,7 @@ export default function Home() {
           onSelectAllFoodProperties={handleSelectAllFoodProperties}
           onPropertyToggle={handlePropertyToggle}
           onGoLiveDateChange={handleGoLiveDateChange}
+          onSave={handleRunAnalysis}
         />
       )}
 
