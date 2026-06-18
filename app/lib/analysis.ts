@@ -152,23 +152,27 @@ export function scoreFromDeltas(
   p3: PeriodStats,
   mtd1: number,
   mtd2: number,
-  mtd3: number
+  mtd3: number,
+  youngHotel = false
 ): number {
   let score = 100;
 
   if (p1.spend === 0 && p1.orders === 0) return 0;
 
-  // Metric 1: Total Spend P1 vs Prior60Avg (avg of P2+P3), weight 50%
-  const prior60Avg = (p2.spend + p3.spend) / 2;
-  if (prior60Avg > 0) {
-    const delta = ((p1.spend - prior60Avg) / prior60Avg) * 100;
+  // Metric 1: Total Spend P1 vs reference.
+  // youngHotel (<90d since go-live): use P2 only as reference.
+  // Normal: use avg(P2+P3).
+  const spendRef = youngHotel ? p2.spend : (p2.spend + p3.spend) / 2;
+  if (spendRef > 0) {
+    const delta = ((p1.spend - spendRef) / spendRef) * 100;
     score += clamp(delta * 0.5, -45, 20);
   }
 
-  // Metric 2: MTD1 vs AVG(MTD2+MTD3), weight 30%
-  const mtdAvg = (mtd2 + mtd3) / 2;
-  if (mtdAvg > 0) {
-    const delta = ((mtd1 - mtdAvg) / mtdAvg) * 100;
+  // Metric 2: MTD1 vs reference.
+  // youngHotel: use MTD2 only. Normal: use avg(MTD2+MTD3).
+  const mtdRef = youngHotel ? mtd2 : (mtd2 + mtd3) / 2;
+  if (mtdRef > 0) {
+    const delta = ((mtd1 - mtdRef) / mtdRef) * 100;
     score += clamp(delta * 0.3, -25, 15);
   }
 
@@ -190,7 +194,8 @@ export function analyzeSet(
   label: string,
   mtd1: number,
   mtd2: number,
-  mtd3: number
+  mtd3: number,
+  youngHotel = false
 ): SetAnalysis {
   function agg(s: Date, e: Date): PeriodStats {
     const sub = orders.filter((o) => o.date >= s && o.date <= e);
@@ -244,7 +249,7 @@ export function analyzeSet(
     flags.push({ t: 'good', l: 'MTD Stable' });
   }
 
-  const score = scoreFromDeltas(p1, p2, p3, mtd1, mtd2, mtd3);
+  const score = scoreFromDeltas(p1, p2, p3, mtd1, mtd2, mtd3, youngHotel);
   return { p1, p2, p3, spendP1P2, spendP1P3, usersP1P2, ordersP1P2, flags, score, tier: tierOf(score) };
 }
 
@@ -425,6 +430,14 @@ export function runAnalysis(
     const mtd2Supplies = computeMtd(suppliesOrders, 1, maxDate, mtdCutoffDay);
     const mtd3Supplies = computeMtd(suppliesOrders, 2, maxDate, mtdCutoffDay);
 
+    // Go-live date: CSV lookup or manual override from settings
+    const goLiveDate: string | undefined = propGoLive[prop] || undefined;
+    const effectiveGoLiveForScore = goLiveDates[`property:${prop}`] || goLiveDate;
+    // youngHotel: < 90 days since go-live → use P2 only (not avg P2+P3) for scoring
+    const youngHotel = effectiveGoLiveForScore
+      ? (maxDate.getTime() - new Date(effectiveGoLiveForScore).getTime()) / 86400000 < 90
+      : false;
+
     const userWantsFood = foodProperties[prop] !== undefined
       ? foodProperties[prop] === true
       : (totalFoodSpend >= 300 && foodOrders.length > 0);
@@ -436,8 +449,8 @@ export function runAnalysis(
     if (userWantsFood) {
       split = true;
       if (totalFoodSpend >= 300 && foodOrders.length > 0) {
-        food = analyzeSet(foodOrders, P, 'food', mtd1Food, mtd2Food, mtd3Food);
-        supplies = analyzeSet(suppliesOrders, P, 'supplies', mtd1Supplies, mtd2Supplies, mtd3Supplies);
+        food = analyzeSet(foodOrders, P, 'food', mtd1Food, mtd2Food, mtd3Food, youngHotel);
+        supplies = analyzeSet(suppliesOrders, P, 'supplies', mtd1Supplies, mtd2Supplies, mtd3Supplies, youngHotel);
       } else {
         // Property expected to order food but hasn't (or < $300): zero food + critical flag
         food = {
@@ -452,15 +465,12 @@ export function runAnalysis(
           score: 0,
           tier: 'red' as const,
         };
-        supplies = analyzeSet(all, P, 'supplies', mtd1, mtd2, mtd3);
+        supplies = analyzeSet(all, P, 'supplies', mtd1, mtd2, mtd3, youngHotel);
       }
     } else {
       split = false;
-      single = analyzeSet(all, P, 'order', mtd1, mtd2, mtd3);
+      single = analyzeSet(all, P, 'order', mtd1, mtd2, mtd3, youngHotel);
     }
-
-    // Go-live date: read from CSV column lookup built above
-    const goLiveDate: string | undefined = propGoLive[prop] || undefined;
 
     // Total 90-day spend (all orders, all periods combined)
     const p1All = all.filter((o) => o.date >= P.p1start && o.date <= P.p1end);
@@ -474,9 +484,8 @@ export function runAnalysis(
     let sortScore = split ? Math.round((food!.score + supplies!.score) / 2) : single!.score;
 
     // Determine if hotel is New Onboarding: go-live date within last 30 days
-    const effectiveGoLive = goLiveDates[`property:${prop}`] || goLiveDate;
-    const isNewOnboarding = effectiveGoLive
-      ? (maxDate.getTime() - new Date(effectiveGoLive).getTime()) / 86400000 <= 30
+    const isNewOnboarding = effectiveGoLiveForScore
+      ? (maxDate.getTime() - new Date(effectiveGoLiveForScore).getTime()) / 86400000 <= 30
       : false;
 
     // Low Spend penalty — skipped for New Onboarding hotels
@@ -486,7 +495,7 @@ export function runAnalysis(
       ? (totalSpend90d < 3000 ? 'crit' : 'warn')
       : null;
     if (lowSpend) {
-      sortScore = Math.max(0, sortScore - (lowSpend === 'crit' ? 100 : 70));
+      sortScore = Math.max(0, sortScore - (lowSpend === 'crit' ? 70 : 50));
     }
 
     const tier = tierOf(sortScore);
