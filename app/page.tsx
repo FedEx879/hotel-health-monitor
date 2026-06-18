@@ -85,7 +85,7 @@ function fmtDDMMM(d: Date): string {
 
 function ScoreRing({ hotel }: { hotel: Hotel }) {
   if (!hotel.split) {
-    return <div className={`score-ring ${hotel.single!.tier}`}>{hotel.single!.score}</div>;
+    return <div className={`score-ring ${hotel.tier}`}>{hotel.sortScore}</div>;
   }
   return (
     <div className="score-split-avg">
@@ -110,10 +110,10 @@ function HealthBar({ hotel }: { hotel: Hotel }) {
       <>
         <div className="bar-row">
           <div className="bar-bg">
-            <div className={`bar-fill ${hotel.single!.tier}`} style={{ width: `${hotel.single!.score}%` }} />
+            <div className={`bar-fill ${hotel.tier}`} style={{ width: `${hotel.sortScore}%` }} />
           </div>
         </div>
-        <div className="bar-lbl">{tierLbl(hotel.single!.tier)}</div>
+        <div className="bar-lbl">{tierLbl(hotel.tier)}</div>
       </>
     );
   }
