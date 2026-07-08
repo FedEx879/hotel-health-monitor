@@ -39,6 +39,7 @@ const FIELDS: FieldDef[] = [
   { id: 'mCompany', label: 'Company name', kw: ['company', 'group', 'chain', 'org'] },
   { id: 'mStatus', label: 'Status (to exclude cancelled/declined)', kw: ['status', 'state'] },
   { id: 'mCsm', label: 'CSM Owner', kw: ['csm', 'csm owner', 'account manager', 'owner'] },
+  { id: 'mOrderId', label: 'Order ID', kw: ['order id', 'orderid', 'order_id', 'id'] },
 ];
 
 // Fixed mapping used when loading rows from the database
@@ -52,16 +53,18 @@ const DB_MAPPING: ColumnMapping = {
   mStatus: 'status',
   mCsm: 'csm',
   mGoLive: 'go_live_date',
+  mOrderId: 'order_id',
 };
 
 const DB_COLS = [
-  'property', 'spend', 'order_date', 'company',
+  'order_id', 'property', 'spend', 'order_date', 'company',
   'vendor', 'user_email', 'status', 'csm', 'go_live_date',
 ];
 
 /** Convert DB RawOrderRow[] to Record<string,string>[] matching DB_MAPPING keys */
 function rawOrderRowsToRecords(rows: RawOrderRow[]): Record<string, string>[] {
   return rows.map((r) => ({
+    order_id: r.order_id,
     property: r.property,
     spend: String(r.spend),
     order_date: r.order_date,
@@ -79,7 +82,7 @@ function csvRowsToRawOrderRows(
   rows: Record<string, string>[],
   mapping: ColumnMapping
 ): RawOrderRow[] {
-  const { mProp, mSpend, mDate, mUser, mVendor, mCompany, mStatus, mCsm, mGoLive } = mapping;
+  const { mProp, mSpend, mDate, mUser, mVendor, mCompany, mStatus, mCsm, mGoLive, mOrderId } = mapping;
   const result: RawOrderRow[] = [];
   for (const r of rows) {
     const dateRaw = mDate ? r[mDate] : '';
@@ -89,6 +92,7 @@ function csvRowsToRawOrderRows(
     const mo = String(parsedDate.getMonth() + 1).padStart(2, '0');
     const d = String(parsedDate.getDate()).padStart(2, '0');
     result.push({
+      order_id: (mOrderId ? r[mOrderId] : '') || '',
       property: (mProp ? r[mProp] : '') || 'Unknown',
       spend: parseFloat(mSpend ? r[mSpend] : '0') || 0,
       order_date: `${y}-${mo}-${d}`,
@@ -118,6 +122,7 @@ function buildInitialMapping(cols: string[]): ColumnMapping {
     mStatus: null,
     mCsm: null,
     mGoLive: autoDetectGoLive(cols),
+    mOrderId: null,
   };
   FIELDS.forEach((f) => {
     const found = autoCol(cols, f.kw);

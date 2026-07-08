@@ -100,9 +100,11 @@ export interface ColumnMapping {
   mStatus: string | null;
   mCsm: string | null;
   mGoLive?: string | null;
+  mOrderId?: string | null;
 }
 
 export interface RawOrderRow {
+  order_id: string;
   property: string;
   spend: number;
   order_date: string; // ISO date string "YYYY-MM-DD"

@@ -9,6 +9,7 @@ export async function upsertOrders(
   const dbRows = rows
     .filter((r) => r.order_date)
     .map((r) => ({
+      order_id: r.order_id || `${r.property}__${r.order_date}__${r.spend}__${r.vendor}__${r.user_email}`,
       property: r.property,
       spend: r.spend,
       order_date: r.order_date,
@@ -23,7 +24,7 @@ export async function upsertOrders(
   const { data, error } = await supabase
     .from('orders')
     .upsert(dbRows, {
-      onConflict: 'property,order_date,spend,vendor,user_email',
+      onConflict: 'order_id',
       ignoreDuplicates: true,
     })
     .select();
@@ -42,7 +43,7 @@ export async function fetchAllOrders(): Promise<RawOrderRow[]> {
   while (true) {
     const { data, error } = await supabase
       .from('orders')
-      .select('property, spend, order_date, company, vendor, user_email, status, csm, go_live_date')
+      .select('order_id, property, spend, order_date, company, vendor, user_email, status, csm, go_live_date')
       .order('order_date', { ascending: true })
       .range(from, from + PAGE - 1);
 
@@ -50,6 +51,7 @@ export async function fetchAllOrders(): Promise<RawOrderRow[]> {
     if (!data || data.length === 0) break;
 
     allRows = allRows.concat(data.map((row) => ({
+      order_id: row.order_id ?? '',
       property: row.property ?? '',
       spend: row.spend ?? 0,
       order_date: row.order_date ?? '',
