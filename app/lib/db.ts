@@ -35,26 +35,37 @@ export async function upsertOrders(
 }
 
 export async function fetchAllOrders(): Promise<RawOrderRow[]> {
-  const { data, error } = await supabase
-    .from('orders')
-    .select(
-      'property, spend, order_date, company, vendor, user_email, status, csm, go_live_date'
-    )
-    .order('order_date', { ascending: true });
+  const PAGE = 1000;
+  let allRows: RawOrderRow[] = [];
+  let from = 0;
 
-  if (error) throw error;
+  while (true) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('property, spend, order_date, company, vendor, user_email, status, csm, go_live_date')
+      .order('order_date', { ascending: true })
+      .range(from, from + PAGE - 1);
 
-  return (data ?? []).map((row) => ({
-    property: row.property ?? '',
-    spend: row.spend ?? 0,
-    order_date: row.order_date ?? '',
-    company: row.company ?? '',
-    vendor: row.vendor ?? '',
-    user_email: row.user_email ?? '',
-    status: row.status ?? '',
-    csm: row.csm ?? '',
-    go_live_date: row.go_live_date ?? '',
-  }));
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+
+    allRows = allRows.concat(data.map((row) => ({
+      property: row.property ?? '',
+      spend: row.spend ?? 0,
+      order_date: row.order_date ?? '',
+      company: row.company ?? '',
+      vendor: row.vendor ?? '',
+      user_email: row.user_email ?? '',
+      status: row.status ?? '',
+      csm: row.csm ?? '',
+      go_live_date: row.go_live_date ?? '',
+    })));
+
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+
+  return allRows;
 }
 
 export async function saveSettings(settings: SettingsPayload): Promise<void> {
