@@ -101,3 +101,36 @@ export interface ColumnMapping {
   mCsm: string | null;
   mGoLive?: string | null;
 }
+
+export interface RawOrderRow {
+  property: string;
+  spend: number;
+  order_date: string; // ISO date string "YYYY-MM-DD"
+  company: string;
+  vendor: string;
+  user_email: string;
+  status: string;
+  csm: string;
+  go_live_date: string;
+}
+
+export interface CompanyRow {
+  name: string;
+  enabled: boolean;
+  reason: string;
+}
+
+export interface VendorRow {
+  name: string;
+  isFood: boolean;
+}
+
+export interface SettingsPayload {
+  companyRows: CompanyRow[];
+  excludedProperties: Record<string, boolean>;
+  vendorRows: VendorRow[];
+  foodProperties: Record<string, boolean>;
+  goLiveDates: Record<string, string>;
+  csmOverrides: Record<string, string>;
+  propertiesByCompany?: Record<string, string[]>;
+}

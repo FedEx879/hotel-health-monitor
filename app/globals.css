@@ -235,6 +235,12 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; backg
 .settings-property-row { display:flex; align-items:center; gap:10px; padding:5px 10px 5px 44px; border-radius:var(--radius); }
 .settings-property-row:hover { background:var(--surface2); }
 
+/* DB loading / error states */
+.db-loading { display:flex; flex-direction:column; align-items:center; gap:12px; padding:4rem 1rem; color:var(--text2); font-size:14px; }
+.db-spinner { width:28px; height:28px; border:3px solid var(--border2); border-top-color:var(--blue); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.db-error { padding:1.25rem; background:var(--red-bg); color:var(--red-text); border-radius:var(--radius); margin-bottom:1.5rem; font-size:13px; }
+
 @media (max-width:640px) {
   .map-grid { grid-template-columns:1fr; }
   .summary-row { grid-template-columns:1fr 1fr; }

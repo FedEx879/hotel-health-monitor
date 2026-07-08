@@ -1,13 +1,14 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Hotel, LapsedUser, Period, ColumnMapping } from './lib/types';
+import type { Hotel, LapsedUser, Period, ColumnMapping, RawOrderRow, CompanyRow, VendorRow } from './lib/types';
 import {
   DEMO,
   FOOD_VENDORS,
   parseCsvRows,
   runAnalysis,
   autoDetectGoLive,
+  parseDate,
   fmt$,
   fmtPct,
   mC,
@@ -15,6 +16,7 @@ import {
   tierLbl,
   tierOf,
 } from './lib/analysis';
+import { upsertOrders, fetchAllOrders, saveSettings, loadSettings } from './lib/db';
 
 type Tier = 'red' | 'amber' | 'green';
 type Tab = 'dash' | 'lapsed' | 'settings';
@@ -38,6 +40,68 @@ const FIELDS: FieldDef[] = [
   { id: 'mStatus', label: 'Status (to exclude cancelled/declined)', kw: ['status', 'state'] },
   { id: 'mCsm', label: 'CSM Owner', kw: ['csm', 'csm owner', 'account manager', 'owner'] },
 ];
+
+// Fixed mapping used when loading rows from the database
+const DB_MAPPING: ColumnMapping = {
+  mProp: 'property',
+  mSpend: 'spend',
+  mDate: 'order_date',
+  mUser: 'user_email',
+  mVendor: 'vendor',
+  mCompany: 'company',
+  mStatus: 'status',
+  mCsm: 'csm',
+  mGoLive: 'go_live_date',
+};
+
+const DB_COLS = [
+  'property', 'spend', 'order_date', 'company',
+  'vendor', 'user_email', 'status', 'csm', 'go_live_date',
+];
+
+/** Convert DB RawOrderRow[] to Record<string,string>[] matching DB_MAPPING keys */
+function rawOrderRowsToRecords(rows: RawOrderRow[]): Record<string, string>[] {
+  return rows.map((r) => ({
+    property: r.property,
+    spend: String(r.spend),
+    order_date: r.order_date,
+    company: r.company,
+    vendor: r.vendor,
+    user_email: r.user_email,
+    status: r.status,
+    csm: r.csm,
+    go_live_date: r.go_live_date,
+  }));
+}
+
+/** Convert CSV Record<string,string>[] + ColumnMapping → RawOrderRow[] for DB storage */
+function csvRowsToRawOrderRows(
+  rows: Record<string, string>[],
+  mapping: ColumnMapping
+): RawOrderRow[] {
+  const { mProp, mSpend, mDate, mUser, mVendor, mCompany, mStatus, mCsm, mGoLive } = mapping;
+  const result: RawOrderRow[] = [];
+  for (const r of rows) {
+    const dateRaw = mDate ? r[mDate] : '';
+    const parsedDate = parseDate(dateRaw);
+    if (!parsedDate || isNaN(parsedDate.getTime())) continue;
+    const y = parsedDate.getFullYear();
+    const mo = String(parsedDate.getMonth() + 1).padStart(2, '0');
+    const d = String(parsedDate.getDate()).padStart(2, '0');
+    result.push({
+      property: (mProp ? r[mProp] : '') || 'Unknown',
+      spend: parseFloat(mSpend ? r[mSpend] : '0') || 0,
+      order_date: `${y}-${mo}-${d}`,
+      company: (mCompany ? r[mCompany] : '') || 'Unknown',
+      vendor: mVendor ? r[mVendor] : '',
+      user_email: mUser ? r[mUser] : '',
+      status: mStatus ? r[mStatus] : '',
+      csm: mCsm ? r[mCsm] : '',
+      go_live_date: mGoLive ? r[mGoLive] : '',
+    });
+  }
+  return result;
+}
 
 function autoCol(cols: string[], kws: string[]): string {
   return cols.find((c) => kws.some((k) => c.toLowerCase().includes(k))) || '';
@@ -287,17 +351,6 @@ function HotelDetail({ hotel, onCollapse, onCopyPrompt }: HotelDetailProps) {
 }
 
 // ---- Settings tab sub-components ----
-
-interface CompanyRow {
-  name: string;
-  enabled: boolean;
-  reason: string;
-}
-
-interface VendorRow {
-  name: string;
-  isFood: boolean;
-}
 
 interface SettingsTabProps {
   companies: CompanyRow[];
@@ -650,6 +703,8 @@ function SettingsTab({
 
 export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Tracks whether current csvRows came from DB ('db') or a fresh CSV upload ('csv')
+  const dataSource = useRef<'csv' | 'db'>('csv');
 
   // CSV state
   const [csvCols, setCsvCols] = useState<string[]>([]);
@@ -681,6 +736,11 @@ export default function Home() {
   // Go-live dates — key = "company:Name" or "property:Name", value = "YYYY-MM-DD" or ""
   const [goLiveDates, setGoLiveDates] = useState<Record<string, string>>({});
 
+  // DB state
+  const [dbLoading, setDbLoading] = useState(true);
+  const [dbError, setDbError] = useState<string | null>(null);
+  const [dbOrderCount, setDbOrderCount] = useState(0);
+
   // UI state
   const [activeTab, setActiveTab] = useState<Tab>('dash');
   const [filter, setFilter] = useState<Tier | 'all'>('all');
@@ -703,6 +763,166 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [toast]);
 
+  // ---- On mount: load settings + orders from DB ----
+  useEffect(() => {
+    let cancelled = false;
+
+    async function init() {
+      setDbLoading(true);
+      try {
+        const [settings, dbRows] = await Promise.all([loadSettings(), fetchAllOrders()]);
+        if (cancelled) return;
+
+        // Restore settings into state
+        const loadedCompanyRows = settings?.companyRows ?? [];
+        const loadedVendorRows = settings?.vendorRows ?? [];
+        const loadedFoodProperties = settings?.foodProperties ?? {};
+        const loadedExcludedProperties = settings?.excludedProperties ?? {};
+        const loadedGoLiveDates = settings?.goLiveDates ?? {};
+        const loadedCsmOverrides = settings?.csmOverrides ?? {};
+
+        if (settings) {
+          setCompanyRows(loadedCompanyRows);
+          setVendorRows(loadedVendorRows);
+          setFoodProperties(loadedFoodProperties);
+          setExcludedProperties(loadedExcludedProperties);
+          setGoLiveDates(loadedGoLiveDates);
+          setCsmOverrides(loadedCsmOverrides);
+        }
+
+        setDbOrderCount(dbRows.length);
+
+        if (dbRows.length > 0) {
+          const records = rawOrderRowsToRecords(dbRows);
+
+          // Run analysis with loaded settings (not from state, which hasn't updated yet)
+          const excludedCompanies = new Set(
+            loadedCompanyRows.filter((c) => !c.enabled).map((c) => c.name)
+          );
+          const activeFoodVendors =
+            loadedVendorRows.length > 0
+              ? loadedVendorRows.filter((v) => v.isFood).map((v) => v.name.toLowerCase())
+              : FOOD_VENDORS;
+
+          const result = runAnalysis(records, DB_MAPPING, {
+            excludedCompanies,
+            foodVendors: activeFoodVendors,
+            foodProperties: loadedFoodProperties,
+            excludedProperties: loadedExcludedProperties,
+            goLiveDates: loadedGoLiveDates,
+          });
+
+          if (!result.hotels.length || cancelled) return;
+
+          // Set CSV state so re-analysis works
+          setCsvRows(records);
+          setCsvCols(DB_COLS);
+          setMapping(DB_MAPPING);
+          setUploadLabel({ name: 'database', count: dbRows.length });
+          dataSource.current = 'db';
+
+          // Initialize company rows if not in DB settings
+          if (loadedCompanyRows.length === 0) {
+            const uniqueCompanies = [...new Set(result.hotels.map((h) => h.company))].sort();
+            setCompanyRows(uniqueCompanies.map((name) => ({ name, enabled: true, reason: '' })));
+          }
+
+          // Initialize vendor rows if not in DB settings
+          if (loadedVendorRows.length === 0) {
+            const rawVendors = [
+              ...new Set(records.map((r) => r['vendor'] || '').filter(Boolean)),
+            ].sort();
+            setVendorRows(
+              rawVendors.map((name) => ({
+                name,
+                isFood: FOOD_VENDORS.some((fv) => name.toLowerCase().includes(fv)),
+              }))
+            );
+          }
+
+          // Initialize food properties for any property not already in loaded settings
+          setFoodProperties((prev) => {
+            const next = { ...prev };
+            Object.entries(result.propertyFoodSpend).forEach(([prop, spend]) => {
+              if (!(prop in next)) {
+                next[prop] = spend >= 300;
+              }
+            });
+            return next;
+          });
+
+          // Derive propertiesByCompany from result
+          const newPropertiesByCompany: Record<string, string[]> = {};
+          result.hotels.forEach((h) => {
+            if (!newPropertiesByCompany[h.company]) newPropertiesByCompany[h.company] = [];
+            newPropertiesByCompany[h.company].push(h.prop);
+          });
+          setPropertiesByCompany(newPropertiesByCompany);
+
+          // Initialize go-live dates from CSV data (don't overwrite loaded settings)
+          setGoLiveDates((prev) => {
+            const next = { ...prev };
+            result.hotels.forEach((h) => {
+              if (h.goLiveDate) {
+                const propKey = `property:${h.prop}`;
+                if (!next[propKey]) next[propKey] = h.goLiveDate;
+              }
+            });
+            const companyMap: Record<string, string[]> = {};
+            result.hotels.forEach((h) => {
+              if (!companyMap[h.company]) companyMap[h.company] = [];
+              companyMap[h.company].push(h.prop);
+            });
+            Object.entries(companyMap).forEach(([company, props]) => {
+              const companyKey = `company:${company}`;
+              if (next[companyKey]) return;
+              const dates = props.map((p) => next[`property:${p}`] ?? '');
+              if (dates.length > 0 && dates.every((d) => d && d === dates[0])) {
+                next[companyKey] = dates[0];
+              }
+            });
+            return next;
+          });
+
+          // MTD labels
+          const mx = result.maxDate;
+          const endDay = mx.getDate();
+          const mtd1Range = `${mx.toLocaleString('en-US', { month: 'short' })} 1 – ${mx.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
+          const mtd2End = new Date(mx.getFullYear(), mx.getMonth() - 1, endDay);
+          const mtd2Range = `${mtd2End.toLocaleString('en-US', { month: 'short' })} 1 – ${mtd2End.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
+          const mtd3End = new Date(mx.getFullYear(), mx.getMonth() - 2, endDay);
+          const mtd3Range = `${mtd3End.toLocaleString('en-US', { month: 'short' })} 1 – ${mtd3End.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
+          setMtdMonths([mtd1Range, mtd2Range, mtd3Range]);
+
+          setHotels(result.hotels);
+          setLapsed(result.lapsed);
+          setPeriods(result.periods);
+          setExcludedCount(result.excludedCount);
+          setDataMinDate(result.minDate);
+          setDataMaxDate(result.maxDate);
+          setAnalyzed(true);
+          setActiveTab('dash');
+          setFilter('all');
+          setSearch('');
+          setExpanded(null);
+          showToast(`${result.hotels.length} properties loaded from database`);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setDbError(e instanceof Error ? e.message : String(e));
+        }
+      } finally {
+        if (!cancelled) setDbLoading(false);
+      }
+    }
+
+    init();
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleCsv = useCallback((text: string, fname: string) => {
     const { cols, rows } = parseCsvRows(text);
     setCsvCols(cols);
@@ -717,6 +937,7 @@ export default function Home() {
     setFoodProperties({});
     setExcludedProperties({});
     setPropertiesByCompany({});
+    dataSource.current = 'csv';
   }, []);
 
   const handleFileChange = useCallback(
@@ -751,11 +972,42 @@ export default function Home() {
     [handleCsv]
   );
 
-  const handleRunAnalysis = useCallback(() => {
+  const handleRunAnalysis = useCallback(async () => {
     if (!mapping || !csvRows.length) return;
     if (!mapping.mProp || !mapping.mSpend || !mapping.mDate) {
       alert('Please map Property, Spend, and Date columns.');
       return;
+    }
+
+    let rowsToAnalyze = csvRows;
+    let mappingToUse = mapping;
+
+    // If rows came from a CSV upload, upsert them to DB then fetch all
+    if (dataSource.current === 'csv') {
+      try {
+        const rawRows = csvRowsToRawOrderRows(csvRows, mapping);
+        const { inserted, total } = await upsertOrders(rawRows);
+        showToast(`${inserted} new orders saved, ${total - inserted} duplicates skipped`);
+      } catch (e) {
+        showToast(`DB error: ${e instanceof Error ? e.message : String(e)}`);
+        // Continue with local CSV data if DB save fails
+      }
+
+      try {
+        const allDbRows = await fetchAllOrders();
+        if (allDbRows.length > 0) {
+          rowsToAnalyze = rawOrderRowsToRecords(allDbRows);
+          mappingToUse = DB_MAPPING;
+          setCsvRows(rowsToAnalyze);
+          setMapping(DB_MAPPING);
+          setDbOrderCount(allDbRows.length);
+          setUploadLabel({ name: 'database', count: allDbRows.length });
+          dataSource.current = 'db';
+        }
+      } catch (e) {
+        // If fetch fails, continue with local CSV data
+        console.error('Failed to fetch all orders from DB:', e);
+      }
     }
 
     // Compute excluded companies from settings
@@ -769,7 +1021,7 @@ export default function Home() {
         ? vendorRows.filter((v) => v.isFood).map((v) => v.name.toLowerCase())
         : FOOD_VENDORS;
 
-    const result = runAnalysis(csvRows, mapping, {
+    const result = runAnalysis(rowsToAnalyze, mappingToUse, {
       excludedCompanies,
       foodVendors: activeFoodVendors,
       foodProperties,
@@ -788,12 +1040,12 @@ export default function Home() {
       setCompanyRows(uniqueCompanies.map((name) => ({ name, enabled: true, reason: '' })));
     }
 
-    if (vendorRows.length === 0 && mapping.mVendor) {
+    if (vendorRows.length === 0 && mappingToUse.mVendor) {
       // Extract unique vendors from raw rows
       const rawVendors = [
         ...new Set(
-          csvRows
-            .map((r) => (mapping.mVendor ? r[mapping.mVendor] : ''))
+          rowsToAnalyze
+            .map((r) => (mappingToUse.mVendor ? r[mappingToUse.mVendor] : ''))
             .filter(Boolean)
         ),
       ].sort();
@@ -807,7 +1059,6 @@ export default function Home() {
     }
 
     // Initialize foodProperties for any property not already in state
-    // (preserves manual overrides on re-runs)
     setFoodProperties((prev) => {
       const next = { ...prev };
       Object.entries(result.propertyFoodSpend).forEach(([prop, spend]) => {
@@ -873,7 +1124,27 @@ export default function Home() {
     setSearch('');
     setExpanded(null);
     showToast(`${result.hotels.length} properties · ${result.lapsed.length} lapsed users`);
-  }, [mapping, csvRows, companyRows, vendorRows, showToast]);
+  }, [mapping, csvRows, companyRows, vendorRows, foodProperties, excludedProperties, goLiveDates, showToast]);
+
+  // Save settings to DB then re-analyze
+  const handleSaveAndReanalyze = useCallback(async () => {
+    try {
+      await saveSettings({
+        companyRows,
+        excludedProperties,
+        vendorRows,
+        foodProperties,
+        goLiveDates,
+        csmOverrides,
+        propertiesByCompany,
+      });
+      showToast('Settings saved');
+    } catch (e) {
+      showToast(`Error saving settings: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    handleRunAnalysis();
+  }, [companyRows, excludedProperties, vendorRows, foodProperties, goLiveDates, csmOverrides, propertiesByCompany, showToast, handleRunAnalysis]);
 
   const toggleExpanded = useCallback((prop: string) => {
     setExpanded((prev) => (prev === prop ? null : prop));
@@ -1041,399 +1312,421 @@ export default function Home() {
         <p>One row per order · 3 × 30-day periods · food vs supplies split · grouped by company</p>
       </div>
 
-      {/* Upload zone */}
-      <div
-        className={`upload-zone${dragOver ? ' drag' : ''}`}
-        onClick={() => fileInputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-      >
-        {uploadLabel ? (
-          <>
-            <i className="ti ti-circle-check" style={{ color: 'var(--green)' }} />
-            <div className="lbl" style={{ color: 'var(--green-text)' }}>
-              {uploadLabel.name} — {uploadLabel.count} orders loaded
-            </div>
-            <div className="sub">Confirm column mapping below then Analyze</div>
-          </>
-        ) : (
-          <>
-            <i className="ti ti-cloud-upload" />
-            <div className="lbl">Drop your orders CSV here or click to browse</div>
-            <div className="sub">
-              Needs: property, spend, date, user, vendor · company &amp; status optional
-            </div>
-          </>
-        )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".csv"
-          style={{ display: 'none' }}
-          onChange={handleFileChange}
-        />
-      </div>
-
-      {/* Column mapping */}
-      {mapping && csvCols.length > 0 && (
-        <div className="card">
-          <h3>
-            <i className="ti ti-columns" /> Map your columns
-          </h3>
-          <div className="map-grid">
-            {FIELDS.map((f) => (
-              <div key={f.id} className="map-item">
-                <label>{f.label}</label>
-                <select
-                  value={mapping[f.id] ?? '— skip —'}
-                  onChange={(e) =>
-                    setMapping((prev) => ({
-                      ...prev!,
-                      [f.id]: e.target.value === '— skip —' ? null : e.target.value,
-                    }))
-                  }
-                >
-                  <option value="— skip —">— skip —</option>
-                  {csvCols.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
+      {/* DB loading state */}
+      {dbLoading ? (
+        <div className="db-loading">
+          <div className="db-spinner" />
+          <p>Loading data from database…</p>
+        </div>
+      ) : dbError ? (
+        <div className="db-error">
+          <p>Could not connect to database: {dbError}</p>
+        </div>
+      ) : (
+        <>
+          {/* Upload zone */}
+          <div
+            className={`upload-zone${dragOver ? ' drag' : ''}`}
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={handleDrop}
+          >
+            {uploadLabel ? (
+              <>
+                <i className="ti ti-circle-check" style={{ color: 'var(--green)' }} />
+                <div className="lbl" style={{ color: 'var(--green-text)' }}>
+                  {uploadLabel.name} — {uploadLabel.count} orders loaded
+                </div>
+                <div className="sub">Confirm column mapping below then Analyze</div>
+              </>
+            ) : dbOrderCount > 0 ? (
+              <>
+                <i className="ti ti-database" style={{ color: 'var(--blue)' }} />
+                <div className="lbl" style={{ color: 'var(--blue-text)' }}>
+                  {dbOrderCount} orders in database
+                </div>
+                <div className="sub">Upload a new CSV to add more data</div>
+              </>
+            ) : (
+              <>
+                <i className="ti ti-cloud-upload" />
+                <div className="lbl">Drop your orders CSV here or click to browse</div>
+                <div className="sub">
+                  Needs: property, spend, date, user, vendor · company &amp; status optional
+                </div>
+              </>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              style={{ display: 'none' }}
+              onChange={handleFileChange}
+            />
           </div>
-          <button className="run-btn" onClick={handleRunAnalysis}>
-            <i className="ti ti-analyze" style={{ verticalAlign: '-2px', marginRight: 5 }} />
-            Analyze 90 days
-          </button>
-        </div>
-      )}
 
-      {/* Tabs */}
-      {analyzed && (
-        <div className="tabs">
-          <button
-            className={`tab${activeTab === 'dash' ? ' on' : ''}`}
-            onClick={() => setActiveTab('dash')}
-          >
-            Dashboard
-          </button>
-          <button
-            className={`tab${activeTab === 'lapsed' ? ' on' : ''}`}
-            onClick={() => setActiveTab('lapsed')}
-          >
-            Lapsed users
-            {lapsed.length > 0 && <span className="badge">{lapsed.length}</span>}
-          </button>
-          <button
-            className={`tab${activeTab === 'settings' ? ' on' : ''}`}
-            onClick={() => setActiveTab('settings')}
-          >
-            Settings
-          </button>
-        </div>
-      )}
-
-      {/* Dashboard tab */}
-      {analyzed && activeTab === 'dash' && (
-        <div>
-          {/* Date range banner */}
-          {dataMinDate && dataMaxDate && (
-            <div className="date-range-banner">
-              Analyzing orders from{' '}
-              <strong>{fmtDDMMMYYYY(dataMinDate)}</strong>
-              {' '}to{' '}
-              <strong>{fmtDDMMMYYYY(dataMaxDate)}</strong>
+          {/* Column mapping */}
+          {mapping && csvCols.length > 0 && dataSource.current === 'csv' && (
+            <div className="card">
+              <h3>
+                <i className="ti ti-columns" /> Map your columns
+              </h3>
+              <div className="map-grid">
+                {FIELDS.map((f) => (
+                  <div key={f.id} className="map-item">
+                    <label>{f.label}</label>
+                    <select
+                      value={mapping[f.id] ?? '— skip —'}
+                      onChange={(e) =>
+                        setMapping((prev) => ({
+                          ...prev!,
+                          [f.id]: e.target.value === '— skip —' ? null : e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="— skip —">— skip —</option>
+                      {csvCols.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <button className="run-btn" onClick={() => handleRunAnalysis()}>
+                <i className="ti ti-analyze" style={{ verticalAlign: '-2px', marginRight: 5 }} />
+                Analyze 90 days
+              </button>
             </div>
           )}
 
-          {/* Period bar */}
-          {periods && (
-            <div className="period-bar">
-              <span style={{ fontSize: 12, color: 'var(--text2)', marginRight: 4 }}>
-                Periods analyzed:
-              </span>
-              <span className="period-tag p3">
-                P3: {fmtPeriodDate(periods.p3start)}–{fmtPeriodDate(periods.p3end)}
-              </span>
-              <span style={{ color: 'var(--text3)' }}>→</span>
-              <span className="period-tag p2">
-                P2: {fmtPeriodDate(periods.p2start)}–{fmtPeriodDate(periods.p2end)}
-              </span>
-              <span style={{ color: 'var(--text3)' }}>→</span>
-              <span className="period-tag p1">
-                P1 (latest): {fmtPeriodDate(periods.p1start)}–{fmtPeriodDate(periods.p1end)}
-              </span>
-              {excludedCount > 0 && (
-                <span style={{ marginLeft: 'auto', fontSize: 11 }}>
-                  {excludedCount} cancelled/declined excluded
-                </span>
+          {/* Tabs */}
+          {analyzed && (
+            <div className="tabs">
+              <button
+                className={`tab${activeTab === 'dash' ? ' on' : ''}`}
+                onClick={() => setActiveTab('dash')}
+              >
+                Dashboard
+              </button>
+              <button
+                className={`tab${activeTab === 'lapsed' ? ' on' : ''}`}
+                onClick={() => setActiveTab('lapsed')}
+              >
+                Lapsed users
+                {lapsed.length > 0 && <span className="badge">{lapsed.length}</span>}
+              </button>
+              <button
+                className={`tab${activeTab === 'settings' ? ' on' : ''}`}
+                onClick={() => setActiveTab('settings')}
+              >
+                Settings
+              </button>
+            </div>
+          )}
+
+          {/* Dashboard tab */}
+          {analyzed && activeTab === 'dash' && (
+            <div>
+              {/* Date range banner */}
+              {dataMinDate && dataMaxDate && (
+                <div className="date-range-banner">
+                  Analyzing orders from{' '}
+                  <strong>{fmtDDMMMYYYY(dataMinDate)}</strong>
+                  {' '}to{' '}
+                  <strong>{fmtDDMMMYYYY(dataMaxDate)}</strong>
+                </div>
+              )}
+
+              {/* Period bar */}
+              {periods && (
+                <div className="period-bar">
+                  <span style={{ fontSize: 12, color: 'var(--text2)', marginRight: 4 }}>
+                    Periods analyzed:
+                  </span>
+                  <span className="period-tag p3">
+                    P3: {fmtPeriodDate(periods.p3start)}–{fmtPeriodDate(periods.p3end)}
+                  </span>
+                  <span style={{ color: 'var(--text3)' }}>→</span>
+                  <span className="period-tag p2">
+                    P2: {fmtPeriodDate(periods.p2start)}–{fmtPeriodDate(periods.p2end)}
+                  </span>
+                  <span style={{ color: 'var(--text3)' }}>→</span>
+                  <span className="period-tag p1">
+                    P1 (latest): {fmtPeriodDate(periods.p1start)}–{fmtPeriodDate(periods.p1end)}
+                  </span>
+                  {excludedCount > 0 && (
+                    <span style={{ marginLeft: 'auto', fontSize: 11 }}>
+                      {excludedCount} cancelled/declined excluded
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Summary row */}
+              <div className="summary-row">
+                <div className="s-card">
+                  <div className="val">{hotels.length}</div>
+                  <div className="lbl">Properties tracked</div>
+                </div>
+                <div className="s-card red">
+                  <div className="val">{dangerCount}</div>
+                  <div className="lbl">At risk</div>
+                </div>
+                <div className="s-card amber">
+                  <div className="val">{warnCount}</div>
+                  <div className="lbl">Watch list</div>
+                </div>
+                <div className="s-card green">
+                  <div className="val">${(totalSpend / 1000).toFixed(1)}k</div>
+                  <div className="lbl">Total spend last 30d</div>
+                </div>
+              </div>
+
+              {/* Filters */}
+              <div className="filters">
+                {(['all', 'red', 'amber', 'green'] as const).map((f) => (
+                  <button
+                    key={f}
+                    className={`fb${filter === f ? ' on' : ''}`}
+                    onClick={() => setFilter(f)}
+                  >
+                    {f === 'all' ? 'All' : f === 'red' ? '🔴 At risk' : f === 'amber' ? '🟡 Watch' : '🟢 Healthy'}
+                  </button>
+                ))}
+                <input
+                  className="srch"
+                  placeholder="Search property or company…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              {/* Hotel list */}
+              {filteredHotels.length === 0 ? (
+                <div className="empty">
+                  <i className="ti ti-search-off" />
+                  <p>No properties match this filter.</p>
+                </div>
+              ) : (
+                sortedCompanies.map((company) => {
+                  const g = byCompany[company];
+                  const newOnboarding = isNewOnboarding(g);
+                  const avgScore = companyAvgScore(g);
+                  const avgTier = tierOf(avgScore);
+                  const companyCsm =
+                    csmOverrides[company] ?? (g[0]?.csm || 'Federico Campos');
+
+                  return (
+                    <div key={company} className="company-group">
+                      <div className="company-header">
+                        <div className="company-name">{company}</div>
+                        {newOnboarding && (
+                          <span className="new-onboarding-badge">New Onboarding</span>
+                        )}
+                        <div className={`company-score ${avgTier}`}>{avgScore}</div>
+                        <div className="company-csm">
+                          <select
+                            value={companyCsm}
+                            onChange={(e) =>
+                              setCsmOverrides((prev) => ({ ...prev, [company]: e.target.value }))
+                            }
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {CSM_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="company-count">
+                          {g.length} propert{g.length === 1 ? 'y' : 'ies'}
+                          {goLiveDates[`company:${company}`] && (
+                            <span className="company-golive">
+                              {' · Go-Live: '}{fmtGoLive(goLiveDates[`company:${company}`])}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="col-headers">
+                        <div />
+                        <div className="col-hdr" style={{ textAlign: 'left' }}>Property</div>
+                        <div className="col-hdr">Total spend</div>
+                        <div className="col-hdr">MTD1<br /><span className="col-hdr-month">{mtdMonths[0]}</span></div>
+                        <div className="col-hdr">MTD2<br /><span className="col-hdr-month">{mtdMonths[1]}</span></div>
+                        <div className="col-hdr">MTD3<br /><span className="col-hdr-month">{mtdMonths[2]}</span></div>
+                        <div className="col-hdr">Last order</div>
+                        <div className="col-hdr">Users</div>
+                        <div className="col-hdr">Health</div>
+                      </div>
+                      <div className="hotel-list">
+                        {g.map((h) => {
+                          const isExp = expanded === h.prop;
+                          return (
+                            <div key={h.prop} className="hcard">
+                              <div className="hcard-top" onClick={() => toggleExpanded(h.prop)}>
+                                <ScoreRing hotel={h} />
+                                <div className="hinfo">
+                                  <div className="hname">{h.prop}</div>
+                                  {goLiveDates[`property:${h.prop}`] && (
+                                    <div className="hotel-golive">
+                                      Go-Live: {fmtGoLive(goLiveDates[`property:${h.prop}`])}
+                                    </div>
+                                  )}
+                                  <div className="flags">
+                                    <HotelFlags hotel={h} />
+                                  </div>
+                                </div>
+                                <div className="metric-col">
+                                  <div className="metric-val">{fmt$(h.overall.spend)}</div>
+                                  <div className="metric-lbl">last 30d</div>
+                                  <div className={`metric-delta ${mC(h.overallSpendP1P2)}`}>
+                                    {fmtPct(h.overallSpendP1P2)} vs P2
+                                  </div>
+                                </div>
+                                <div className="metric-col">
+                                  <div className="metric-val">{fmt$(h.mtd1)}</div>
+                                </div>
+                                <div className="metric-col">
+                                  <div className="metric-val">{fmt$(h.mtd2)}</div>
+                                </div>
+                                <div className="metric-col">
+                                  <div className="metric-val">{fmt$(h.mtd3)}</div>
+                                </div>
+                                <div className="metric-col">
+                                  <div className="metric-val last-order-val">
+                                    {h.lastOrder ? fmtDDMMM(h.lastOrder) : '—'}
+                                  </div>
+                                </div>
+                                <div className="metric-col">
+                                  <div className="metric-val">{h.overall.users}</div>
+                                  <div className="metric-lbl">users last 30d</div>
+                                  <div className={`metric-delta ${mC(h.overallUsersP1P2)}`}>
+                                    {fmtPct(h.overallUsersP1P2)} vs P2
+                                  </div>
+                                </div>
+                                <div className="bar-col">
+                                  <HealthBar hotel={h} />
+                                </div>
+                              </div>
+                              {isExp && (
+                                <HotelDetail
+                                  hotel={h}
+                                  onCollapse={() => toggleExpanded(h.prop)}
+                                  onCopyPrompt={() => copyPrompt(h.prop)}
+                                />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           )}
 
-          {/* Summary row */}
-          <div className="summary-row">
-            <div className="s-card">
-              <div className="val">{hotels.length}</div>
-              <div className="lbl">Properties tracked</div>
-            </div>
-            <div className="s-card red">
-              <div className="val">{dangerCount}</div>
-              <div className="lbl">At risk</div>
-            </div>
-            <div className="s-card amber">
-              <div className="val">{warnCount}</div>
-              <div className="lbl">Watch list</div>
-            </div>
-            <div className="s-card green">
-              <div className="val">${(totalSpend / 1000).toFixed(1)}k</div>
-              <div className="lbl">Total spend last 30d</div>
-            </div>
-          </div>
-
-          {/* Filters */}
-          <div className="filters">
-            {(['all', 'red', 'amber', 'green'] as const).map((f) => (
-              <button
-                key={f}
-                className={`fb${filter === f ? ' on' : ''}`}
-                onClick={() => setFilter(f)}
-              >
-                {f === 'all' ? 'All' : f === 'red' ? '🔴 At risk' : f === 'amber' ? '🟡 Watch' : '🟢 Healthy'}
-              </button>
-            ))}
-            <input
-              className="srch"
-              placeholder="Search property or company…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-
-          {/* Hotel list */}
-          {filteredHotels.length === 0 ? (
-            <div className="empty">
-              <i className="ti ti-search-off" />
-              <p>No properties match this filter.</p>
-            </div>
-          ) : (
-            sortedCompanies.map((company) => {
-              const g = byCompany[company];
-              const newOnboarding = isNewOnboarding(g);
-              const avgScore = companyAvgScore(g);
-              const avgTier = tierOf(avgScore);
-              const companyCsm =
-                csmOverrides[company] ?? (g[0]?.csm || 'Federico Campos');
-
-              return (
-                <div key={company} className="company-group">
-                  <div className="company-header">
-                    <div className="company-name">{company}</div>
-                    {newOnboarding && (
-                      <span className="new-onboarding-badge">New Onboarding</span>
-                    )}
-                    <div className={`company-score ${avgTier}`}>{avgScore}</div>
-                    <div className="company-csm">
-                      <select
-                        value={companyCsm}
-                        onChange={(e) =>
-                          setCsmOverrides((prev) => ({ ...prev, [company]: e.target.value }))
-                        }
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {CSM_OPTIONS.map((opt) => (
-                          <option key={opt} value={opt}>{opt}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="company-count">
-                      {g.length} propert{g.length === 1 ? 'y' : 'ies'}
-                      {goLiveDates[`company:${company}`] && (
-                        <span className="company-golive">
-                          {' · Go-Live: '}{fmtGoLive(goLiveDates[`company:${company}`])}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="col-headers">
-                    <div />
-                    <div className="col-hdr" style={{ textAlign: 'left' }}>Property</div>
-                    <div className="col-hdr">Total spend</div>
-                    <div className="col-hdr">MTD1<br /><span className="col-hdr-month">{mtdMonths[0]}</span></div>
-                    <div className="col-hdr">MTD2<br /><span className="col-hdr-month">{mtdMonths[1]}</span></div>
-                    <div className="col-hdr">MTD3<br /><span className="col-hdr-month">{mtdMonths[2]}</span></div>
-                    <div className="col-hdr">Last order</div>
-                    <div className="col-hdr">Users</div>
-                    <div className="col-hdr">Health</div>
-                  </div>
-                  <div className="hotel-list">
-                    {g.map((h) => {
-                      const isExp = expanded === h.prop;
-                      return (
-                        <div key={h.prop} className="hcard">
-                          <div className="hcard-top" onClick={() => toggleExpanded(h.prop)}>
-                            <ScoreRing hotel={h} />
-                            <div className="hinfo">
-                              <div className="hname">{h.prop}</div>
-                              {goLiveDates[`property:${h.prop}`] && (
-                                <div className="hotel-golive">
-                                  Go-Live: {fmtGoLive(goLiveDates[`property:${h.prop}`])}
-                                </div>
-                              )}
-                              <div className="flags">
-                                <HotelFlags hotel={h} />
-                              </div>
-                            </div>
-                            <div className="metric-col">
-                              <div className="metric-val">{fmt$(h.overall.spend)}</div>
-                              <div className="metric-lbl">last 30d</div>
-                              <div className={`metric-delta ${mC(h.overallSpendP1P2)}`}>
-                                {fmtPct(h.overallSpendP1P2)} vs P2
-                              </div>
-                            </div>
-                            <div className="metric-col">
-                              <div className="metric-val">{fmt$(h.mtd1)}</div>
-                            </div>
-                            <div className="metric-col">
-                              <div className="metric-val">{fmt$(h.mtd2)}</div>
-                            </div>
-                            <div className="metric-col">
-                              <div className="metric-val">{fmt$(h.mtd3)}</div>
-                            </div>
-                            <div className="metric-col">
-                              <div className="metric-val last-order-val">
-                                {h.lastOrder ? fmtDDMMM(h.lastOrder) : '—'}
-                              </div>
-                            </div>
-                            <div className="metric-col">
-                              <div className="metric-val">{h.overall.users}</div>
-                              <div className="metric-lbl">users last 30d</div>
-                              <div className={`metric-delta ${mC(h.overallUsersP1P2)}`}>
-                                {fmtPct(h.overallUsersP1P2)} vs P2
-                              </div>
-                            </div>
-                            <div className="bar-col">
-                              <HealthBar hotel={h} />
-                            </div>
-                          </div>
-                          {isExp && (
-                            <HotelDetail
-                              hotel={h}
-                              onCollapse={() => toggleExpanded(h.prop)}
-                              onCopyPrompt={() => copyPrompt(h.prop)}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-
-      {/* Lapsed users tab */}
-      {analyzed && activeTab === 'lapsed' && (
-        <div>
-          <div className="note">
-            {lapsed.length === 0 ? (
-              'No lapsed users — every user who ordered in the prior 60 days has also ordered in the last 30 days.'
-            ) : (
-              <>
-                <strong>{lapsed.length}</strong> user{lapsed.length === 1 ? '' : 's'} placed orders
-                in the prior 60 days (days 31–90) but{' '}
-                <strong>none in the last 30 days</strong>. Combined prior-period spend at risk:{' '}
-                <strong>{fmt$(lapsedTotalAtRisk)}</strong>.
-              </>
-            )}
-          </div>
-          {lapsed.length > 0 && (
-            <>
-              <div className="filters">
-                <input
-                  className="srch"
-                  placeholder="Search user, hotel or company…"
-                  value={lapsedSearch}
-                  onChange={(e) => setLapsedSearch(e.target.value)}
-                />
+          {/* Lapsed users tab */}
+          {analyzed && activeTab === 'lapsed' && (
+            <div>
+              <div className="note">
+                {lapsed.length === 0 ? (
+                  'No lapsed users — every user who ordered in the prior 60 days has also ordered in the last 30 days.'
+                ) : (
+                  <>
+                    <strong>{lapsed.length}</strong> user{lapsed.length === 1 ? '' : 's'} placed orders
+                    in the prior 60 days (days 31–90) but{' '}
+                    <strong>none in the last 30 days</strong>. Combined prior-period spend at risk:{' '}
+                    <strong>{fmt$(lapsedTotalAtRisk)}</strong>.
+                  </>
+                )}
               </div>
-              <table className="lapsed-table">
-                <thead>
-                  <tr>
-                    <th onClick={() => handleLapsedSort('user')}>User{arrow('user')}</th>
-                    <th onClick={() => handleLapsedSort('prop')}>Hotel{arrow('prop')}</th>
-                    <th onClick={() => handleLapsedSort('company')}>Company{arrow('company')}</th>
-                    <th onClick={() => handleLapsedSort('lastDate')}>Last order{arrow('lastDate')}</th>
-                    <th className="num" onClick={() => handleLapsedSort('priorCount')}>
-                      Orders (31–90d){arrow('priorCount')}
-                    </th>
-                    <th className="num" onClick={() => handleLapsedSort('priorSpend')}>
-                      Spend (31–90d){arrow('priorSpend')}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredLapsed.map((l, i) => (
-                    <tr key={i}>
-                      <td className="lapsed-user">{l.user}</td>
-                      <td>{l.prop}</td>
-                      <td className="lapsed-sub">{l.company}</td>
-                      <td>
-                        {fmtDate(l.lastDate)}{' '}
-                        <span className="lapsed-days">{l.daysSince}d ago</span>
-                      </td>
-                      <td className="num">{l.priorCount}</td>
-                      <td className="num">{fmt$(l.priorSpend)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
+              {lapsed.length > 0 && (
+                <>
+                  <div className="filters">
+                    <input
+                      className="srch"
+                      placeholder="Search user, hotel or company…"
+                      value={lapsedSearch}
+                      onChange={(e) => setLapsedSearch(e.target.value)}
+                    />
+                  </div>
+                  <table className="lapsed-table">
+                    <thead>
+                      <tr>
+                        <th onClick={() => handleLapsedSort('user')}>User{arrow('user')}</th>
+                        <th onClick={() => handleLapsedSort('prop')}>Hotel{arrow('prop')}</th>
+                        <th onClick={() => handleLapsedSort('company')}>Company{arrow('company')}</th>
+                        <th onClick={() => handleLapsedSort('lastDate')}>Last order{arrow('lastDate')}</th>
+                        <th className="num" onClick={() => handleLapsedSort('priorCount')}>
+                          Orders (31–90d){arrow('priorCount')}
+                        </th>
+                        <th className="num" onClick={() => handleLapsedSort('priorSpend')}>
+                          Spend (31–90d){arrow('priorSpend')}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredLapsed.map((l, i) => (
+                        <tr key={i}>
+                          <td className="lapsed-user">{l.user}</td>
+                          <td>{l.prop}</td>
+                          <td className="lapsed-sub">{l.company}</td>
+                          <td>
+                            {fmtDate(l.lastDate)}{' '}
+                            <span className="lapsed-days">{l.daysSince}d ago</span>
+                          </td>
+                          <td className="num">{l.priorCount}</td>
+                          <td className="num">{fmt$(l.priorSpend)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
+            </div>
           )}
-        </div>
-      )}
 
-      {/* Settings tab */}
-      {analyzed && activeTab === 'settings' && (
-        <SettingsTab
-          companies={companyRows}
-          vendors={vendorRows}
-          foodProperties={foodProperties}
-          excludedProperties={excludedProperties}
-          propertiesByCompany={propertiesByCompany}
-          goLiveDates={goLiveDates}
-          onCompanyChange={handleCompanyChange}
-          onVendorChange={handleVendorChange}
-          onSelectAllCompanies={handleSelectAllCompanies}
-          onSelectAllVendors={handleSelectAllVendors}
-          onFoodPropertyChange={handleFoodPropertyChange}
-          onSelectAllFoodProperties={handleSelectAllFoodProperties}
-          onPropertyToggle={handlePropertyToggle}
-          onGoLiveDateChange={handleGoLiveDateChange}
-          onSave={handleRunAnalysis}
-        />
-      )}
+          {/* Settings tab */}
+          {analyzed && activeTab === 'settings' && (
+            <SettingsTab
+              companies={companyRows}
+              vendors={vendorRows}
+              foodProperties={foodProperties}
+              excludedProperties={excludedProperties}
+              propertiesByCompany={propertiesByCompany}
+              goLiveDates={goLiveDates}
+              onCompanyChange={handleCompanyChange}
+              onVendorChange={handleVendorChange}
+              onSelectAllCompanies={handleSelectAllCompanies}
+              onSelectAllVendors={handleSelectAllVendors}
+              onFoodPropertyChange={handleFoodPropertyChange}
+              onSelectAllFoodProperties={handleSelectAllFoodProperties}
+              onPropertyToggle={handlePropertyToggle}
+              onGoLiveDateChange={handleGoLiveDateChange}
+              onSave={handleSaveAndReanalyze}
+            />
+          )}
 
-      {/* Empty state */}
-      {!uploadLabel && !analyzed && (
-        <div className="empty">
-          <i className="ti ti-table-import" />
-          <p>
-            Upload your orders CSV to begin.
-            <br />
-            <span style={{ fontSize: 12 }}>
-              <a href="#" onClick={loadDemo}>
-                Load demo data
-              </a>{' '}
-              to see how it works.
-            </span>
-          </p>
-        </div>
+          {/* Empty state */}
+          {!uploadLabel && !analyzed && (
+            <div className="empty">
+              <i className="ti ti-table-import" />
+              <p>
+                Upload your orders CSV to begin.
+                <br />
+                <span style={{ fontSize: 12 }}>
+                  <a href="#" onClick={loadDemo}>
+                    Load demo data
+                  </a>{' '}
+                  to see how it works.
+                </span>
+              </p>
+            </div>
+          )}
+        </>
       )}
 
       {/* Toast */}
