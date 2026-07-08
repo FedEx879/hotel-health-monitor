@@ -909,7 +909,12 @@ export default function Home() {
         }
       } catch (e) {
         if (!cancelled) {
-          setDbError(e instanceof Error ? e.message : String(e));
+          const msg = e instanceof Error
+            ? e.message
+            : (e as { message?: string })?.message
+              ? (e as { message: string }).message
+              : JSON.stringify(e);
+          setDbError(msg);
         }
       } finally {
         if (!cancelled) setDbLoading(false);
