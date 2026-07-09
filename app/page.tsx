@@ -745,6 +745,7 @@ export default function Home() {
   const [dbLoading, setDbLoading] = useState(true);
   const [dbError, setDbError] = useState<string | null>(null);
   const [dbOrderCount, setDbOrderCount] = useState(0);
+  const [syncingLilo, setSyncingLilo] = useState(false);
 
   // UI state
   const [activeTab, setActiveTab] = useState<Tab>('dash');
@@ -982,20 +983,25 @@ export default function Home() {
     [handleCsv]
   );
 
-  const handleRunAnalysis = useCallback(async () => {
-    if (!mapping || !csvRows.length) return;
-    if (!mapping.mProp || !mapping.mSpend || !mapping.mDate) {
+  const handleRunAnalysis = useCallback(async (
+    presetRows?: Record<string, string>[],
+    presetMapping?: ColumnMapping
+  ) => {
+    const baseMapping = presetMapping ?? mapping;
+    const baseRows = presetRows ?? csvRows;
+    if (!baseMapping || !baseRows.length) return;
+    if (!baseMapping.mProp || !baseMapping.mSpend || !baseMapping.mDate) {
       alert('Please map Property, Spend, and Date columns.');
       return;
     }
 
-    let rowsToAnalyze = csvRows;
-    let mappingToUse = mapping;
+    let rowsToAnalyze = baseRows;
+    let mappingToUse = baseMapping;
 
     // If rows came from a CSV upload, upsert them to DB then fetch all
     if (dataSource.current === 'csv') {
       try {
-        const rawRows = csvRowsToRawOrderRows(csvRows, mapping);
+        const rawRows = csvRowsToRawOrderRows(baseRows, baseMapping);
         const { inserted, total } = await upsertOrders(rawRows);
         showToast(`${inserted} new orders saved, ${total - inserted} duplicates skipped`);
       } catch (e) {
@@ -1155,6 +1161,42 @@ export default function Home() {
     }
     handleRunAnalysis();
   }, [companyRows, excludedProperties, vendorRows, foodProperties, goLiveDates, csmOverrides, propertiesByCompany, showToast, handleRunAnalysis]);
+
+  // Pull all orders from Lilo, save to DB, then re-analyze
+  const handleSyncLilo = useCallback(async () => {
+    setSyncingLilo(true);
+    try {
+      const res = await fetch('/api/lilo/orders');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      const rows: RawOrderRow[] = data.rows ?? [];
+      if (!rows.length) {
+        showToast('Lilo returned no orders');
+        return;
+      }
+
+      const { inserted, total } = await upsertOrders(rows);
+      const more = data.hitPageCap
+        ? ' · more remaining — click Sync again to continue'
+        : '';
+      showToast(`Lilo: ${inserted} new, ${total - inserted} duplicates${more}`);
+
+      const allDbRows = await fetchAllOrders();
+      const records = rawOrderRowsToRecords(allDbRows);
+      setCsvRows(records);
+      setCsvCols(DB_COLS);
+      setMapping(DB_MAPPING);
+      setDbOrderCount(allDbRows.length);
+      setUploadLabel({ name: 'Lilo sync', count: allDbRows.length });
+      dataSource.current = 'db';
+
+      await handleRunAnalysis(records, DB_MAPPING);
+    } catch (e) {
+      showToast(`Lilo sync failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSyncingLilo(false);
+    }
+  }, [handleRunAnalysis, showToast]);
 
   const toggleExpanded = useCallback((prop: string) => {
     setExpanded((prev) => (prev === prop ? null : prop));
@@ -1374,6 +1416,25 @@ export default function Home() {
               style={{ display: 'none' }}
               onChange={handleFileChange}
             />
+          </div>
+
+          {/* Sync from Lilo */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '12px 0' }}>
+            <button
+              className="run-btn"
+              onClick={handleSyncLilo}
+              disabled={syncingLilo}
+              style={{ margin: 0, opacity: syncingLilo ? 0.6 : 1 }}
+            >
+              <i
+                className={`ti ${syncingLilo ? 'ti-loader-2' : 'ti-refresh'}`}
+                style={{ verticalAlign: '-2px', marginRight: 5 }}
+              />
+              {syncingLilo ? 'Syncing from Lilo…' : 'Sync from Lilo'}
+            </button>
+            <span className="sub" style={{ margin: 0 }}>
+              Pulls all orders directly from Lilo — no CSV needed.
+            </span>
           </div>
 
           {/* Column mapping */}
