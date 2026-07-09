@@ -26,6 +26,10 @@ function mapOrder(o: Record<string, unknown>): RawOrderRow | null {
 
   const hotel = (o.hotel as Record<string, unknown>) || {};
   const user = (o.user as Record<string, unknown>) || {};
+  const cart = (o.cart as Record<string, unknown>) || {};
+  const cartProducts = (cart.products as Record<string, unknown>[]) || [];
+  const vendorName =
+    cart.vendorName || (cartProducts[0] && cartProducts[0].vendorName) || o.vendorName || '';
   const spend =
     typeof o.totalPrice === 'number' ? o.totalPrice : parseFloat(String(o.totalPrice ?? '0')) || 0;
 
@@ -35,7 +39,7 @@ function mapOrder(o: Record<string, unknown>): RawOrderRow | null {
     spend,
     order_date,
     company: String(o.managementGroupName || hotel.companyName || 'Unknown'),
-    vendor: String(o.vendorName || ''),
+    vendor: String(vendorName),
     user_email: String(user.email || ''),
     status: String(o.status || ''),
     csm: '', // CSM is assigned manually in Settings

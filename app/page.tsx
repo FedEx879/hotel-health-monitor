@@ -750,6 +750,7 @@ export default function Home() {
   // UI state
   const [activeTab, setActiveTab] = useState<Tab>('dash');
   const [filter, setFilter] = useState<Tier | 'all'>('all');
+  const [csmFilter, setCsmFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [lapsedSearch, setLapsedSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -1238,8 +1239,15 @@ export default function Home() {
     d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
 
   // Filtered hotel list
+  // Effective CSM for a hotel: manual company override wins, then order csm, then default.
+  const effectiveCsm = useCallback(
+    (h: Hotel) => csmOverrides[h.company] ?? (h.csm || 'Federico Campos'),
+    [csmOverrides]
+  );
+
   const filteredHotels = hotels.filter((h) => {
     if (filter !== 'all' && h.tier !== filter) return false;
+    if (csmFilter !== 'all' && effectiveCsm(h) !== csmFilter) return false;
     const q = search.toLowerCase();
     if (q && !h.prop.toLowerCase().includes(q) && !h.company.toLowerCase().includes(q)) return false;
     return true;
@@ -1565,6 +1573,16 @@ export default function Home() {
                     onClick={() => setFilter(f)}
                   >
                     {f === 'all' ? 'All' : f === 'red' ? '🔴 At risk' : f === 'amber' ? '🟡 Watch' : '🟢 Healthy'}
+                  </button>
+                ))}
+                <span style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 2px' }} />
+                {['all', ...CSM_OPTIONS].map((c) => (
+                  <button
+                    key={c}
+                    className={`fb${csmFilter === c ? ' on' : ''}`}
+                    onClick={() => setCsmFilter(c)}
+                  >
+                    {c === 'all' ? 'All CSMs' : c === 'Federico Campos' ? 'Federico' : 'Michelle'}
                   </button>
                 ))}
                 <input
