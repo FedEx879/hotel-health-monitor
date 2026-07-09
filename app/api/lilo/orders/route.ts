@@ -67,7 +67,9 @@ async function fetchKnownOrderIds(): Promise<Set<string>> {
 }
 
 export async function GET(request: Request) {
-  const token = process.env.LILO_API_TOKEN;
+  // Strip any stray non-printable/non-ASCII chars (e.g. a bullet from a bad
+  // copy-paste into env vars) — a JWT is pure printable ASCII.
+  const token = (process.env.LILO_API_TOKEN || '').replace(/[^\x21-\x7E]/g, '');
   if (!token) {
     return NextResponse.json(
       { error: 'LILO_API_TOKEN is not configured on the server.' },
