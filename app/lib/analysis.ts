@@ -438,9 +438,11 @@ export function runAnalysis(
       ? (maxDate.getTime() - new Date(effectiveGoLiveForScore).getTime()) / 86400000 < 90
       : false;
 
+    // Default: any hotel that bought anything from a food vendor gets the
+    // food + supplies split. A saved per-property flag (manual override) wins.
     const userWantsFood = foodProperties[prop] !== undefined
       ? foodProperties[prop] === true
-      : (totalFoodSpend >= 300 && foodOrders.length > 0);
+      : foodOrders.length > 0;
     let split = false;
     let food: ReturnType<typeof analyzeSet> | null = null;
     let supplies: ReturnType<typeof analyzeSet> | null = null;
@@ -448,7 +450,7 @@ export function runAnalysis(
 
     if (userWantsFood) {
       split = true;
-      if (totalFoodSpend >= 300 && foodOrders.length > 0) {
+      if (foodOrders.length > 0) {
         food = analyzeSet(foodOrders, P, 'food', mtd1Food, mtd2Food, mtd3Food, youngHotel);
         supplies = analyzeSet(suppliesOrders, P, 'supplies', mtd1Supplies, mtd2Supplies, mtd3Supplies, youngHotel);
       } else {

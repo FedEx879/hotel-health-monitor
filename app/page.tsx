@@ -852,7 +852,7 @@ export default function Home() {
             const next = { ...prev };
             Object.entries(result.propertyFoodSpend).forEach(([prop, spend]) => {
               if (!(prop in next)) {
-                next[prop] = spend >= 300;
+                next[prop] = spend > 0;
               }
             });
             return next;
@@ -1080,7 +1080,7 @@ export default function Home() {
       const next = { ...prev };
       Object.entries(result.propertyFoodSpend).forEach(([prop, spend]) => {
         if (!(prop in next)) {
-          next[prop] = spend >= 300;
+          next[prop] = spend > 0;
         }
       });
       return next;
