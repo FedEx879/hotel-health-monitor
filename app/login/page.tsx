@@ -25,9 +25,9 @@ export default function LoginPage() {
         return;
       }
       const data = await res.json().catch(() => ({}));
-      setError(data.error || 'No se pudo iniciar sesión.');
+      setError(data.error || 'Could not sign in.');
     } catch {
-      setError('Error de conexión. Intenta de nuevo.');
+      setError('Connection error. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -49,17 +49,18 @@ export default function LoginPage() {
         style={{
           width: '100%',
           maxWidth: 360,
-          background: 'var(--card, #fff)',
-          border: '1px solid var(--border, #e5e7eb)',
+          background: '#0d9488',
+          border: '1px solid rgba(255,255,255,0.25)',
           borderRadius: 14,
           padding: 28,
-          boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.18)',
+          color: '#fff',
         }}
       >
-        <h1 style={{ fontSize: 20, margin: '0 0 4px', fontWeight: 700 }}>Hotel Health Monitor</h1>
-        <p style={{ fontSize: 13, opacity: 0.7, margin: '0 0 20px' }}>Inicia sesión para continuar</p>
+        <h1 style={{ fontSize: 20, margin: '0 0 4px', fontWeight: 700, color: '#fff' }}>Hotel Health Monitor</h1>
+        <p style={{ fontSize: 13, opacity: 0.85, margin: '0 0 20px', color: '#fff' }}>Sign in to continue</p>
 
-        <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4 }}>Usuario</label>
+        <label style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 4, color: '#fff' }}>Username</label>
         <input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
@@ -68,7 +69,7 @@ export default function LoginPage() {
           style={inputStyle}
         />
 
-        <label style={{ fontSize: 13, fontWeight: 600, display: 'block', margin: '14px 0 4px' }}>Contraseña</label>
+        <label style={{ fontSize: 13, fontWeight: 600, display: 'block', margin: '14px 0 4px', color: '#fff' }}>Password</label>
         <input
           type="password"
           value={password}
@@ -78,7 +79,7 @@ export default function LoginPage() {
         />
 
         {error && (
-          <div style={{ color: '#dc2626', fontSize: 13, marginTop: 12 }}>{error}</div>
+          <div style={{ color: '#fee2e2', fontSize: 13, marginTop: 12, fontWeight: 600 }}>{error}</div>
         )}
 
         <button
@@ -90,15 +91,15 @@ export default function LoginPage() {
             padding: '10px 14px',
             borderRadius: 10,
             border: 'none',
-            background: '#2563eb',
-            color: '#fff',
-            fontWeight: 600,
+            background: '#fff',
+            color: '#0d9488',
+            fontWeight: 700,
             fontSize: 14,
             cursor: loading ? 'default' : 'pointer',
             opacity: loading ? 0.6 : 1,
           }}
         >
-          {loading ? 'Entrando…' : 'Entrar'}
+          {loading ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
     </div>
@@ -109,9 +110,9 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '9px 12px',
   borderRadius: 10,
-  border: '1px solid var(--border, #d1d5db)',
+  border: '1px solid rgba(255,255,255,0.4)',
   fontSize: 14,
-  background: 'var(--bg, #fff)',
-  color: 'inherit',
+  background: 'rgba(255,255,255,0.12)',
+  color: '#fff',
   boxSizing: 'border-box',
 };
