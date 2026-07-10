@@ -4,3 +4,7 @@ node_modules/
 *.log
 .env.local
 .env*.local
+
+# Uploaded data exports (never commit)
+*Updated Health Score.csv
+*.csv

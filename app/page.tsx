@@ -1365,11 +1365,25 @@ export default function Home() {
 
   return (
     <div className="page">
-      <div className="header">
+      <div className="header" style={{ position: 'relative' }}>
         <h1>
           <i className="ti ti-building" /> Hotel health monitor
         </h1>
         <p>One row per order · 3 × 30-day periods · food vs supplies split · grouped by company</p>
+        <button
+          onClick={async () => {
+            await fetch('/api/logout', { method: 'POST' });
+            window.location.href = '/login';
+          }}
+          style={{
+            position: 'absolute', top: 0, right: 0,
+            padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border, #d1d5db)',
+            background: 'transparent', color: 'inherit', fontSize: 13, cursor: 'pointer',
+          }}
+        >
+          <i className="ti ti-logout" style={{ verticalAlign: '-2px', marginRight: 4 }} />
+          Log out
+        </button>
       </div>
 
       {/* DB loading state */}
