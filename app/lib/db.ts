@@ -1,4 +1,4 @@
-import { supabase } from './supabase'
+import { supabaseServer as supabase } from './supabaseServer'
 import type { RawOrderRow, SettingsPayload } from './types'
 
 export async function upsertOrders(

@@ -16,7 +16,7 @@ import {
   tierLbl,
   tierOf,
 } from './lib/analysis';
-import { upsertOrders, fetchAllOrders, saveSettings, loadSettings } from './lib/db';
+import { upsertOrders, fetchAllOrders, saveSettings, loadSettings } from './lib/dbClient';
 
 type Tier = 'red' | 'amber' | 'green';
 type Tab = 'dash' | 'lapsed' | 'settings';

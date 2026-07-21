@@ -50,7 +50,7 @@ function mapOrder(o: Record<string, unknown>): RawOrderRow | null {
 /** Fetch the set of order_ids already stored in Supabase. */
 async function fetchKnownOrderIds(): Promise<Set<string>> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const ids = new Set<string>();
   if (!url || !key) return ids;
 
