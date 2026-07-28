@@ -1,7 +1,17 @@
 'use client';
 
-import { useState, useCallback, useRef, useEffect } from 'react';
-import type { Hotel, LapsedUser, Period, ColumnMapping, RawOrderRow, CompanyRow, VendorRow } from './lib/types';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+import type {
+  Hotel,
+  LapsedUser,
+  Period,
+  ColumnMapping,
+  RawOrderRow,
+  CompanyRow,
+  VendorRow,
+  FirstOrder,
+  OutreachRecord,
+} from './lib/types';
 import {
   DEMO,
   FOOD_VENDORS,
@@ -16,10 +26,23 @@ import {
   tierLbl,
   tierOf,
 } from './lib/analysis';
-import { upsertOrders, fetchAllOrders, saveSettings, loadSettings } from './lib/dbClient';
+import {
+  upsertOrders,
+  fetchAllOrders,
+  saveSettings,
+  loadSettings,
+  loadOutreach,
+  saveOutreach,
+} from './lib/dbClient';
+import {
+  ACTIVE_WINDOW_DAYS,
+  computeFirstOrders,
+  groupByCompanyHotel,
+  outlookComposeUrl,
+} from './lib/firstOrders';
 
 type Tier = 'red' | 'amber' | 'green';
-type Tab = 'dash' | 'lapsed' | 'settings';
+type Tab = 'dash' | 'lapsed' | 'first' | 'settings';
 type LapsedSortKey = 'user' | 'prop' | 'company' | 'lastDate' | 'priorCount' | 'priorSpend';
 
 const CSM_OPTIONS = ['Federico Campos', 'Michelle Castro'];
@@ -58,7 +81,7 @@ const DB_MAPPING: ColumnMapping = {
 
 const DB_COLS = [
   'order_id', 'property', 'spend', 'order_date', 'company',
-  'vendor', 'user_email', 'status', 'csm', 'go_live_date',
+  'vendor', 'user_email', 'user_name', 'status', 'csm', 'go_live_date',
 ];
 
 /** Convert DB RawOrderRow[] to Record<string,string>[] matching DB_MAPPING keys */
@@ -71,6 +94,7 @@ function rawOrderRowsToRecords(rows: RawOrderRow[]): Record<string, string>[] {
     company: r.company,
     vendor: r.vendor,
     user_email: r.user_email,
+    user_name: r.user_name ?? '',
     status: r.status,
     csm: r.csm,
     go_live_date: r.go_live_date,
@@ -99,6 +123,7 @@ function csvRowsToRawOrderRows(
       company: (mCompany ? r[mCompany] : '') || 'Unknown',
       vendor: mVendor ? r[mVendor] : '',
       user_email: mUser ? r[mUser] : '',
+      user_name: r.user_name ?? '',
       status: mStatus ? r[mStatus] : '',
       csm: mCsm ? r[mCsm] : '',
       go_live_date: mGoLive ? r[mGoLive] : '',
@@ -350,6 +375,227 @@ function HotelDetail({ hotel, onCollapse, onCopyPrompt }: HotelDetailProps) {
         <button className="act-btn" onClick={onCollapse}>
           Collapse
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- First Orders tab ----
+
+interface FirstOrdersTabProps {
+  active: FirstOrder[];
+  archived: FirstOrder[];
+  busyKey: string | null;
+  onArchiveChange: (entry: FirstOrder, archived: boolean) => void;
+  onEmailClick: (entry: FirstOrder) => void;
+}
+
+/** "2026-07-14T18:02:16.000Z" → "14 Jul 2026" */
+function fmtStamp(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function FirstOrdersTab({
+  active,
+  archived,
+  busyKey,
+  onArchiveChange,
+  onEmailClick,
+}: FirstOrdersTabProps) {
+  const [search, setSearch] = useState('');
+  const [showArchive, setShowArchive] = useState(false);
+
+  const match = (e: FirstOrder) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      e.property.toLowerCase().includes(q) ||
+      e.company.toLowerCase().includes(q) ||
+      e.userName.toLowerCase().includes(q) ||
+      e.userEmail.toLowerCase().includes(q)
+    );
+  };
+
+  const activeGroups = groupByCompanyHotel(active.filter(match));
+  const archivedFiltered = archived.filter(match);
+  const archivedGroups = groupByCompanyHotel(archivedFiltered);
+
+  return (
+    <div className="first-orders">
+      <div className="filters">
+        <input
+          className="srch"
+          placeholder="Search hotel, company or user…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <span className="fo-hint">
+          Users stay here for {ACTIVE_WINDOW_DAYS} days after their first order.
+        </span>
+      </div>
+
+      {/* Active list */}
+      {activeGroups.length === 0 ? (
+        <div className="fo-empty">
+          {search ? 'No first orders match this search.' : 'No first orders in the last 4 weeks.'}
+        </div>
+      ) : (
+        activeGroups.map((g) => (
+          <div key={g.company} className="fo-company">
+            <div className="fo-company-name">{g.company}</div>
+            {g.hotels.map((h) => (
+              <div key={h.property} className="fo-hotel">
+                <div className="fo-hotel-name">{h.property}</div>
+                <div className="fo-table-scroll">
+                  <table className="fo-table">
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>Email</th>
+                        <th>First order</th>
+                        <th className="fo-num">Amount</th>
+                        <th>Vendor</th>
+                        <th className="fo-mid">Done</th>
+                        <th className="fo-mid">Email</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {h.users.map((u) => {
+                        const k = `${u.userEmail}||${u.property}`;
+                        return (
+                          <tr key={k}>
+                            <td className="fo-user">{u.userName}</td>
+                            <td className="fo-email">{u.userEmail}</td>
+                            <td>
+                              {fmtGoLive(u.firstDate)}
+                              <span className="fo-days">
+                                {u.daysSince === 0
+                                  ? 'today'
+                                  : `${u.daysSince}d ago`}
+                              </span>
+                            </td>
+                            <td className="fo-num">{fmt$(u.spend)}</td>
+                            <td>{u.vendor || '—'}</td>
+                            <td className="fo-mid">
+                              <input
+                                type="checkbox"
+                                checked={false}
+                                disabled={busyKey === k}
+                                title="Move to Past first orders"
+                                onChange={(e) => onArchiveChange(u, e.target.checked)}
+                              />
+                            </td>
+                            <td className="fo-mid">
+                              <button
+                                className={`fo-mail${u.emailSentAt ? ' sent' : ''}`}
+                                title={
+                                  u.emailSentAt
+                                    ? `Email opened ${fmtStamp(u.emailSentAt)} — click to open again`
+                                    : 'Open Outlook with the first-order email'
+                                }
+                                onClick={() => onEmailClick(u)}
+                              >
+                                <i className={`ti ti-${u.emailSentAt ? 'mail-check' : 'mail'}`} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))
+      )}
+
+      {/* Archive */}
+      <div className="fo-archive">
+        <button className="fo-archive-toggle" onClick={() => setShowArchive((v) => !v)}>
+          <i className={`ti ti-chevron-${showArchive ? 'down' : 'right'}`} />
+          Past first orders
+          <span className="badge">{archivedFiltered.length}</span>
+        </button>
+
+        {showArchive && (
+          <div className="fo-archive-body">
+            <p className="fo-hint">
+              First-order history, plus when each user was moved here and when the email was opened.
+            </p>
+            {archivedGroups.length === 0 ? (
+              <div className="fo-empty">Nothing here yet.</div>
+            ) : (
+              archivedGroups.map((g) => (
+                <div key={g.company} className="fo-company">
+                  <div className="fo-company-name">{g.company}</div>
+                  {g.hotels.map((h) => (
+                    <div key={h.property} className="fo-hotel">
+                      <div className="fo-hotel-name">{h.property}</div>
+                      <div className="fo-table-scroll">
+                        <table className="fo-table">
+                          <thead>
+                            <tr>
+                              <th>User</th>
+                              <th>Email</th>
+                              <th>First order</th>
+                              <th className="fo-num">Amount</th>
+                              <th>Vendor</th>
+                              <th>Moved here</th>
+                              <th>Email sent</th>
+                              <th className="fo-mid">Restore</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {h.users.map((u) => {
+                              const k = `${u.userEmail}||${u.property}`;
+                              return (
+                                <tr key={k}>
+                                  <td className="fo-user">{u.userName}</td>
+                                  <td className="fo-email">{u.userEmail}</td>
+                                  <td>{fmtGoLive(u.firstDate)}</td>
+                                  <td className="fo-num">{fmt$(u.spend)}</td>
+                                  <td>{u.vendor || '—'}</td>
+                                  <td className="fo-sub">
+                                    {u.agedOut
+                                      ? `After ${ACTIVE_WINDOW_DAYS} days`
+                                      : fmtStamp(u.archivedAt) || 'Moved manually'}
+                                  </td>
+                                  <td className="fo-sub">
+                                    {u.emailSentAt ? fmtStamp(u.emailSentAt) : '—'}
+                                  </td>
+                                  <td className="fo-mid">
+                                    {/* Restoring only sticks while still inside the
+                                        active window — past that they re-archive. */}
+                                    {u.daysSince > ACTIVE_WINDOW_DAYS ? (
+                                      <span className="fo-sub">—</span>
+                                    ) : (
+                                      <button
+                                        className="fo-restore"
+                                        disabled={busyKey === k}
+                                        title="Move back to the active list"
+                                        onClick={() => onArchiveChange(u, false)}
+                                      >
+                                        <i className="ti ti-arrow-back-up" />
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -747,6 +993,11 @@ export default function Home() {
   const [dbOrderCount, setDbOrderCount] = useState(0);
   const [syncingLilo, setSyncingLilo] = useState(false);
 
+  // First Orders: raw DB rows + persisted outreach state
+  const [orderRows, setOrderRows] = useState<RawOrderRow[]>([]);
+  const [outreach, setOutreach] = useState<Record<string, OutreachRecord>>({});
+  const [outreachBusy, setOutreachBusy] = useState<string | null>(null);
+
   // UI state
   const [activeTab, setActiveTab] = useState<Tab>('dash');
   const [filter, setFilter] = useState<Tier | 'all'>('all');
@@ -777,8 +1028,15 @@ export default function Home() {
     async function init() {
       setDbLoading(true);
       try {
-        const [settings, dbRows] = await Promise.all([loadSettings(), fetchAllOrders()]);
+        const [settings, dbRows, outreachMap] = await Promise.all([
+          loadSettings(),
+          fetchAllOrders(),
+          loadOutreach().catch(() => ({})),
+        ]);
         if (cancelled) return;
+
+        setOrderRows(dbRows);
+        setOutreach(outreachMap);
 
         // Restore settings into state
         const loadedCompanyRows = settings?.companyRows ?? [];
@@ -1018,6 +1276,7 @@ export default function Home() {
           setCsvRows(rowsToAnalyze);
           setMapping(DB_MAPPING);
           setDbOrderCount(allDbRows.length);
+          setOrderRows(allDbRows);
           setUploadLabel({ name: 'database', count: allDbRows.length });
           dataSource.current = 'db';
         }
@@ -1188,6 +1447,7 @@ export default function Home() {
       setCsvCols(DB_COLS);
       setMapping(DB_MAPPING);
       setDbOrderCount(allDbRows.length);
+      setOrderRows(allDbRows);
       setUploadLabel({ name: 'Lilo sync', count: allDbRows.length });
       dataSource.current = 'db';
 
@@ -1273,6 +1533,50 @@ export default function Home() {
       });
     },
     [dataMaxDate]
+  );
+
+  // First Orders — each user's first order per hotel, split into the active
+  // 4-week list and the archive.
+  const firstOrders = useMemo(
+    () => computeFirstOrders(orderRows, outreach),
+    [orderRows, outreach]
+  );
+
+  /** Move a user to (or back from) the Past first orders section. */
+  const handleArchiveChange = useCallback(
+    async (entry: FirstOrder, archived: boolean) => {
+      const k = `${entry.userEmail}||${entry.property}`;
+      setOutreachBusy(k);
+      try {
+        const next = await saveOutreach(entry.userEmail, entry.property, { archived });
+        setOutreach(next);
+        showToast(archived ? `${entry.userName} moved to past first orders` : `${entry.userName} restored`);
+      } catch (e) {
+        showToast(`Error: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setOutreachBusy(null);
+      }
+    },
+    [showToast]
+  );
+
+  /** Open Outlook with the first-order email and log when it was opened. */
+  const handleEmailClick = useCallback(
+    async (entry: FirstOrder) => {
+      // Open first so the click stays inside the user gesture (no popup block).
+      window.open(outlookComposeUrl(entry.userEmail, entry.userName), '_blank', 'noopener');
+      const k = `${entry.userEmail}||${entry.property}`;
+      setOutreachBusy(k);
+      try {
+        const next = await saveOutreach(entry.userEmail, entry.property, { markEmailSent: true });
+        setOutreach(next);
+      } catch (e) {
+        showToast(`Could not log the email: ${e instanceof Error ? e.message : String(e)}`);
+      } finally {
+        setOutreachBusy(null);
+      }
+    },
+    [showToast]
   );
 
   // Compute company average health score
@@ -1510,6 +1814,15 @@ export default function Home() {
               >
                 Lapsed users
                 {lapsed.length > 0 && <span className="badge">{lapsed.length}</span>}
+              </button>
+              <button
+                className={`tab${activeTab === 'first' ? ' on' : ''}`}
+                onClick={() => setActiveTab('first')}
+              >
+                First orders
+                {firstOrders.active.length > 0 && (
+                  <span className="badge">{firstOrders.active.length}</span>
+                )}
               </button>
               <button
                 className={`tab${activeTab === 'settings' ? ' on' : ''}`}
@@ -1790,6 +2103,17 @@ export default function Home() {
                 </>
               )}
             </div>
+          )}
+
+          {/* First orders tab */}
+          {analyzed && activeTab === 'first' && (
+            <FirstOrdersTab
+              active={firstOrders.active}
+              archived={firstOrders.archived}
+              busyKey={outreachBusy}
+              onArchiveChange={handleArchiveChange}
+              onEmailClick={handleEmailClick}
+            />
           )}
 
           {/* Settings tab */}

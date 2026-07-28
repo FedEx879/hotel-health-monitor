@@ -41,6 +41,7 @@ function mapOrder(o: Record<string, unknown>): RawOrderRow | null {
     company: String(o.managementGroupName || hotel.companyName || 'Unknown'),
     vendor: String(vendorName),
     user_email: String(user.email || ''),
+    user_name: `${user.firstName || ''} ${user.lastName || ''}`.trim(),
     status: String(o.status || ''),
     csm: '', // CSM is assigned manually in Settings
     go_live_date: String(hotel.goLiveDate || ''),

@@ -247,3 +247,36 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; backg
   .col-headers, .hcard-top { grid-template-columns:64px 1fr 75px 88px; }
   .col-headers .col-hdr:nth-child(4), .hcard-top .metric-col:nth-of-type(2) { display:none; }
 }
+
+/* ---- First orders tab ---- */
+.first-orders { margin-top:1rem; }
+.fo-hint { font-size:11px; color:var(--text3); }
+.fo-empty { text-align:center; padding:2.5rem 1rem; color:var(--text3); font-size:13px; }
+
+.fo-company { margin-bottom:1.5rem; }
+.fo-company-name { font-size:12px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.07em; padding:7px 12px; background:var(--surface2); border-radius:var(--radius); border-left:3px solid var(--blue); margin-bottom:8px; }
+.fo-hotel { margin:0 0 12px 12px; }
+.fo-hotel-name { font-size:13px; font-weight:600; color:var(--text); margin-bottom:4px; }
+
+.fo-table-scroll { overflow-x:auto; }
+.fo-table { width:100%; border-collapse:collapse; font-size:13px; }
+.fo-table th { text-align:left; font-size:11px; color:var(--text3); text-transform:uppercase; letter-spacing:.05em; padding:8px 10px; border-bottom:0.5px solid var(--border); white-space:nowrap; }
+.fo-table td { padding:9px 10px; border-bottom:0.5px solid var(--border); }
+.fo-table tr:hover td { background:var(--surface2); }
+.fo-table th.fo-num, .fo-table td.fo-num { text-align:right; font-family:var(--mono); }
+.fo-table th.fo-mid, .fo-table td.fo-mid { text-align:center; }
+.fo-user { font-weight:600; white-space:nowrap; }
+.fo-email { color:var(--text2); font-size:12px; }
+.fo-sub { font-size:11px; color:var(--text2); white-space:nowrap; }
+.fo-days { font-size:10px; color:var(--text3); margin-left:6px; }
+
+.fo-mail, .fo-restore { border:0.5px solid var(--border2); background:var(--surface); color:var(--blue); border-radius:6px; padding:4px 9px; cursor:pointer; font-size:14px; line-height:1; }
+.fo-mail:hover, .fo-restore:hover { background:var(--blue-bg); }
+.fo-mail.sent { color:var(--green-text); background:var(--green-bg); border-color:transparent; }
+.fo-mail:disabled, .fo-restore:disabled { opacity:.4; cursor:default; }
+
+.fo-archive { margin-top:2rem; border-top:0.5px solid var(--border); padding-top:1rem; }
+.fo-archive-toggle { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:var(--text2); background:none; border:none; cursor:pointer; padding:4px 0; }
+.fo-archive-toggle:hover { color:var(--text); }
+.fo-archive-toggle .badge { font-size:11px; background:var(--surface2); color:var(--text2); border-radius:10px; padding:1px 7px; font-weight:600; }
+.fo-archive-body { margin-top:12px; }

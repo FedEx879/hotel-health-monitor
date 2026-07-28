@@ -1,5 +1,5 @@
 import { supabaseServer as supabase } from './supabaseServer'
-import type { RawOrderRow, SettingsPayload } from './types'
+import type { OutreachRecord, RawOrderRow, SettingsPayload } from './types'
 
 export async function upsertOrders(
   rows: RawOrderRow[]
@@ -16,6 +16,7 @@ export async function upsertOrders(
       company: r.company,
       vendor: r.vendor,
       user_email: r.user_email,
+      user_name: r.user_name || '',
       status: r.status,
       csm: r.csm,
       go_live_date: r.go_live_date || null,
@@ -43,7 +44,7 @@ export async function fetchAllOrders(): Promise<RawOrderRow[]> {
   while (true) {
     const { data, error } = await supabase
       .from('orders')
-      .select('order_id, property, spend, order_date, company, vendor, user_email, status, csm, go_live_date')
+      .select('order_id, property, spend, order_date, company, vendor, user_email, user_name, status, csm, go_live_date')
       .order('order_date', { ascending: true })
       .range(from, from + PAGE - 1);
 
@@ -58,6 +59,7 @@ export async function fetchAllOrders(): Promise<RawOrderRow[]> {
       company: row.company ?? '',
       vendor: row.vendor ?? '',
       user_email: row.user_email ?? '',
+      user_name: row.user_name ?? '',
       status: row.status ?? '',
       csm: row.csm ?? '',
       go_live_date: row.go_live_date ?? '',
@@ -203,4 +205,54 @@ export async function loadSettings(): Promise<SettingsPayload | null> {
     csmOverrides,
     propertiesByCompany,
   };
+}
+
+/** Load First Orders outreach state, keyed by "email||property". */
+export async function loadOutreach(): Promise<Record<string, OutreachRecord>> {
+  const { data, error } = await supabase
+    .from('first_order_outreach')
+    .select('user_email, property, archived, archived_at, email_sent_at');
+
+  if (error) throw error;
+
+  const out: Record<string, OutreachRecord> = {};
+  for (const row of data ?? []) {
+    out[`${row.user_email}||${row.property}`] = {
+      archived: (row.archived as boolean) ?? false,
+      archivedAt: (row.archived_at as string) ?? null,
+      emailSentAt: (row.email_sent_at as string) ?? null,
+    };
+  }
+  return out;
+}
+
+/**
+ * Update one user's outreach state. Only the provided fields change, so
+ * archiving never clears a recorded email date and vice versa.
+ */
+export async function saveOutreach(
+  userEmail: string,
+  property: string,
+  patch: { archived?: boolean; emailSentAt?: string }
+): Promise<void> {
+  const row: Record<string, unknown> = {
+    user_email: userEmail,
+    property,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (patch.archived !== undefined) {
+    row.archived = patch.archived;
+    // Stamp when it was archived; clear the stamp when it is un-archived.
+    row.archived_at = patch.archived ? new Date().toISOString() : null;
+  }
+  if (patch.emailSentAt !== undefined) {
+    row.email_sent_at = patch.emailSentAt;
+  }
+
+  const { error } = await supabase
+    .from('first_order_outreach')
+    .upsert(row, { onConflict: 'user_email,property' });
+
+  if (error) throw error;
 }

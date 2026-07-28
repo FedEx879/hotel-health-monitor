@@ -111,9 +111,34 @@ export interface RawOrderRow {
   company: string;
   vendor: string;
   user_email: string;
+  user_name: string;
   status: string;
   csm: string;
   go_live_date: string;
+}
+
+/** One user's first order at a property, for the First Orders page. */
+export interface FirstOrder {
+  property: string;
+  company: string;
+  userEmail: string;
+  userName: string;
+  firstDate: string; // "YYYY-MM-DD"
+  spend: number;
+  vendor: string;
+  daysSince: number;
+  archived: boolean;
+  archivedAt: string | null;
+  emailSentAt: string | null;
+  /** True when it left the active list by aging out rather than being moved manually. */
+  agedOut: boolean;
+}
+
+/** Persisted per-user outreach state for the First Orders page. */
+export interface OutreachRecord {
+  archived: boolean;
+  archivedAt: string | null;
+  emailSentAt: string | null;
 }
 
 export interface CompanyRow {
