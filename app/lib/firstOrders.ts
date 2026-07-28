@@ -24,12 +24,15 @@ export function outreachBody(userName: string): string {
 
 /** Compose URL that opens Outlook on the web with the message prefilled. */
 export function outlookComposeUrl(to: string, userName: string): string {
-  const params = new URLSearchParams({
-    to,
-    subject: OUTREACH_SUBJECT,
-    body: outreachBody(userName),
-  });
-  return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
+  // Build the query with encodeURIComponent, not URLSearchParams: the latter
+  // encodes spaces as "+", which Outlook's compose deeplink shows literally
+  // instead of decoding back to spaces.
+  const q = [
+    `to=${encodeURIComponent(to)}`,
+    `subject=${encodeURIComponent(OUTREACH_SUBJECT)}`,
+    `body=${encodeURIComponent(outreachBody(userName))}`,
+  ].join('&');
+  return `https://outlook.office.com/mail/deeplink/compose?${q}`;
 }
 
 export function key(userEmail: string, property: string): string {
