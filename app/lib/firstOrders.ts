@@ -38,7 +38,8 @@ export function key(userEmail: string, property: string): string {
 
 /** Fall back to a readable name when the order carries no user_name. */
 export function displayName(userName: string, userEmail: string): string {
-  const n = (userName || '').trim();
+  // Lilo names sometimes carry stray inner spaces ("Garrett  Pettit").
+  const n = (userName || '').replace(/\s+/g, ' ').trim();
   if (n) return n;
   const local = (userEmail || '').split('@')[0];
   if (!local) return '—';
