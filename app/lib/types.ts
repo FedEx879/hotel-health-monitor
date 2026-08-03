@@ -88,6 +88,9 @@ export interface AnalysisResult {
   minDate: Date | null;
   maxDate: Date;
   propertyFoodSpend: Record<string, number>;
+  /** Full extent of the loaded data, ignoring the analysis window. */
+  datasetMinDate: Date | null;
+  datasetMaxDate: Date | null;
 }
 
 export interface ColumnMapping {

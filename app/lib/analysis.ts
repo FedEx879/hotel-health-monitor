@@ -80,6 +80,12 @@ O051,Riverside Suites,920,2026-03-10,RiverStay,TechSupply,tina@river.com,Complet
 
 export function parseDate(s: string): Date | null {
   if (!s) return null;
+  // Date-only ISO strings ("2026-01-31") must be read as a LOCAL day. Passing
+  // them to `new Date()` parses them as UTC midnight, which lands on the
+  // previous day in any negative-offset timezone and shifts every date shown.
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
+  if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]);
+
   const d = new Date(s);
   if (!isNaN(d.getTime())) return d;
   const p = s.split(/[\/\-\.]/);
@@ -268,6 +274,31 @@ export function parseCsvRows(text: string): { cols: string[]; rows: Record<strin
   return { cols, rows };
 }
 
+/** Last day-of-month for a given year/month (month is 0-indexed). */
+export function daysInMonth(year: number, month: number): number {
+  return new Date(year, month + 1, 0).getDate();
+}
+
+/**
+ * End of the MTD comparison window for a month `monthsBack` before the anchor.
+ * The cutoff day is clamped to the month's length: asking for "the 31st" of a
+ * 30-day month would otherwise roll into the next month and over-count a day.
+ */
+export function mtdWindow(
+  refEndDate: Date,
+  monthsBack: number,
+  cutoffDay: number
+): { start: Date; end: Date } {
+  const d = new Date(refEndDate.getFullYear(), refEndDate.getMonth() - monthsBack, 1);
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  const day = Math.min(cutoffDay, daysInMonth(y, m));
+  return {
+    start: new Date(y, m, 1),
+    end: new Date(y, m, day, 23, 59, 59, 999),
+  };
+}
+
 /** Compute MTD spend for a property's orders given a reference end date (inclusive)
  *  and "day-of-month cutoff" for prior months. */
 function computeMtd(
@@ -276,15 +307,9 @@ function computeMtd(
   refEndDate: Date,
   cutoffDay: number
 ): number {
-  const year = refEndDate.getFullYear();
-  const month = refEndDate.getMonth(); // 0-indexed
-  const targetMonth = month - monthsBack;
-  // Resolve month overflow
-  const d = new Date(year, targetMonth, 1);
-  const mStart = new Date(d.getFullYear(), d.getMonth(), 1);
-  const mEnd = new Date(d.getFullYear(), d.getMonth(), cutoffDay, 23, 59, 59, 999);
+  const { start, end } = mtdWindow(refEndDate, monthsBack, cutoffDay);
   return orders
-    .filter((o) => o.date >= mStart && o.date <= mEnd)
+    .filter((o) => o.date >= start && o.date <= end)
     .reduce((s, o) => s + o.spend, 0);
 }
 
@@ -294,6 +319,12 @@ export interface RunAnalysisOptions {
   foodProperties?: Record<string, boolean>;
   goLiveDates?: Record<string, string>;
   excludedProperties?: Record<string, boolean>;
+  /**
+   * Last day of the analysis window, "YYYY-MM-DD". The three 30-day periods
+   * end here and orders after it are ignored, so the result reads as
+   * "health as of this date". Defaults to the latest order in the data.
+   */
+  analysisEnd?: string | null;
 }
 
 const GO_LIVE_KWS = ['go live', 'golive', 'go-live', 'launch date', 'start date'];
@@ -311,7 +342,7 @@ export function runAnalysis(
   // Auto-detect go-live column if not already in mapping
   const mGoLiveCol: string | null =
     mapping.mGoLive !== undefined ? (mapping.mGoLive ?? null) : null;
-  const { excludedCompanies = new Set<string>(), foodVendors, foodProperties = {}, excludedProperties = {}, goLiveDates = {} } = options;
+  const { excludedCompanies = new Set<string>(), foodVendors, foodProperties = {}, excludedProperties = {}, goLiveDates = {}, analysisEnd = null } = options;
   const effectiveFoodVendors = (foodVendors && foodVendors.length > 0) ? foodVendors : FOOD_VENDORS;
 
   const allOrders: RawOrder[] = rows
@@ -331,20 +362,51 @@ export function runAnalysis(
   const validOrders = allOrders.filter((o) => isValidStatus(o.status));
 
   // Filter out excluded companies and excluded properties
-  const orders = validOrders.filter(
+  const inScope = validOrders.filter(
     (o) =>
       !excludedCompanies.has(o.company) &&
       excludedProperties[o.prop] !== false
   );
 
+  // Full extent of the data, before the analysis window is applied. The UI
+  // uses these to bound the date picker.
+  const datasetMinDate = inScope.length
+    ? new Date(Math.min(...inScope.map((o) => o.date.getTime())))
+    : null;
+  const datasetMaxDate = inScope.length
+    ? new Date(Math.max(...inScope.map((o) => o.date.getTime())))
+    : null;
+
+  // Anchor = last day of the analysis window. Clamped into the data's range so
+  // a stale or out-of-range pick can never produce an empty analysis.
+  let picked = datasetMaxDate ?? new Date();
+  if (analysisEnd) {
+    const p = parseDate(analysisEnd);
+    if (p && !isNaN(p.getTime())) {
+      const t = p.getTime();
+      const lo = datasetMinDate?.getTime() ?? t;
+      const hi = datasetMaxDate?.getTime() ?? t;
+      picked = new Date(Math.min(Math.max(t, lo), hi));
+    }
+  }
+  // Start of the anchor day drives all day arithmetic (period starts must land
+  // at 00:00 so that day's orders are included); end of the anchor day is the
+  // inclusive cutoff for "ignore anything after the window".
+  const anchorDay = new Date(picked.getFullYear(), picked.getMonth(), picked.getDate());
+  const windowEnd = new Date(anchorDay);
+  windowEnd.setHours(23, 59, 59, 999);
+
+  // Treat the anchor as "today": ignore anything after it.
+  const orders = inScope.filter((o) => o.date <= windowEnd);
+
   const minDate = orders.length
     ? new Date(Math.min(...orders.map((o) => o.date.getTime())))
     : null;
-  const maxDate = new Date(Math.max(...orders.map((o) => o.date.getTime())));
+  const maxDate = windowEnd;
 
   const P: Period = {
-    p1end: maxDate,
-    p1start: new Date(maxDate),
+    p1end: windowEnd,
+    p1start: new Date(anchorDay),
     p2end: new Date(),
     p2start: new Date(),
     p3end: new Date(),
@@ -353,15 +415,19 @@ export function runAnalysis(
   P.p1start.setDate(P.p1start.getDate() - 29);
   P.p2end = new Date(P.p1start);
   P.p2end.setDate(P.p2end.getDate() - 1);
+  P.p2end.setHours(23, 59, 59, 999);
   P.p2start = new Date(P.p2end);
+  P.p2start.setHours(0, 0, 0, 0);
   P.p2start.setDate(P.p2start.getDate() - 29);
   P.p3end = new Date(P.p2start);
   P.p3end.setDate(P.p3end.getDate() - 1);
+  P.p3end.setHours(23, 59, 59, 999);
   P.p3start = new Date(P.p3end);
+  P.p3start.setHours(0, 0, 0, 0);
   P.p3start.setDate(P.p3start.getDate() - 29);
 
-  // MTD cutoff: day-of-month of maxDate
-  const mtdCutoffDay = maxDate.getDate();
+  // MTD cutoff: day-of-month of the anchor
+  const mtdCutoffDay = anchorDay.getDate();
 
   // Build property → go-live date lookup from raw rows (before filtering)
   const propGoLive: Record<string, string> = {};
@@ -402,9 +468,9 @@ export function runAnalysis(
     );
 
     // MTD values
-    const mtd1 = computeMtd(all, 0, maxDate, mtdCutoffDay);
-    const mtd2 = computeMtd(all, 1, maxDate, mtdCutoffDay);
-    const mtd3 = computeMtd(all, 2, maxDate, mtdCutoffDay);
+    const mtd1 = computeMtd(all, 0, anchorDay, mtdCutoffDay);
+    const mtd2 = computeMtd(all, 1, anchorDay, mtdCutoffDay);
+    const mtd3 = computeMtd(all, 2, anchorDay, mtdCutoffDay);
 
     // Last order date
     const lastOrder = all.reduce<Date | null>((best, o) => {
@@ -423,19 +489,19 @@ export function runAnalysis(
     const totalFoodSpend = foodOrders.reduce((a, o) => a + o.spend, 0);
 
     // MTD split: food-only and supplies-only
-    const mtd1Food = computeMtd(foodOrders, 0, maxDate, mtdCutoffDay);
-    const mtd2Food = computeMtd(foodOrders, 1, maxDate, mtdCutoffDay);
-    const mtd3Food = computeMtd(foodOrders, 2, maxDate, mtdCutoffDay);
-    const mtd1Supplies = computeMtd(suppliesOrders, 0, maxDate, mtdCutoffDay);
-    const mtd2Supplies = computeMtd(suppliesOrders, 1, maxDate, mtdCutoffDay);
-    const mtd3Supplies = computeMtd(suppliesOrders, 2, maxDate, mtdCutoffDay);
+    const mtd1Food = computeMtd(foodOrders, 0, anchorDay, mtdCutoffDay);
+    const mtd2Food = computeMtd(foodOrders, 1, anchorDay, mtdCutoffDay);
+    const mtd3Food = computeMtd(foodOrders, 2, anchorDay, mtdCutoffDay);
+    const mtd1Supplies = computeMtd(suppliesOrders, 0, anchorDay, mtdCutoffDay);
+    const mtd2Supplies = computeMtd(suppliesOrders, 1, anchorDay, mtdCutoffDay);
+    const mtd3Supplies = computeMtd(suppliesOrders, 2, anchorDay, mtdCutoffDay);
 
     // Go-live date: CSV lookup or manual override from settings
     const goLiveDate: string | undefined = propGoLive[prop] || undefined;
     const effectiveGoLiveForScore = goLiveDates[`property:${prop}`] || goLiveDate;
     // youngHotel: < 90 days since go-live → use P2 only (not avg P2+P3) for scoring
     const youngHotel = effectiveGoLiveForScore
-      ? (maxDate.getTime() - new Date(effectiveGoLiveForScore).getTime()) / 86400000 < 90
+      ? (anchorDay.getTime() - new Date(effectiveGoLiveForScore).getTime()) / 86400000 < 90
       : false;
 
     // Default: any hotel that bought anything from a food vendor gets the
@@ -487,7 +553,7 @@ export function runAnalysis(
 
     // Determine if hotel is New Onboarding: go-live date within last 30 days
     const isNewOnboarding = effectiveGoLiveForScore
-      ? (maxDate.getTime() - new Date(effectiveGoLiveForScore).getTime()) / 86400000 <= 30
+      ? (anchorDay.getTime() - new Date(effectiveGoLiveForScore).getTime()) / 86400000 <= 30
       : false;
 
     // Low Spend penalty — skipped for New Onboarding hotels
@@ -568,7 +634,7 @@ export function runAnalysis(
     .filter((r) => r.p1count === 0 && r.priorCount > 0)
     .map((r) => ({
       ...r,
-      daysSince: Math.round((maxDate.getTime() - (r.lastDate?.getTime() ?? 0)) / 86400000),
+      daysSince: Math.round((anchorDay.getTime() - (r.lastDate?.getTime() ?? 0)) / 86400000),
     }));
 
   // Compute total food spend per property across all orders (for initializing foodProperties)
@@ -579,5 +645,15 @@ export function runAnalysis(
     propertyFoodSpend[prop] = fOrders.reduce((a, o) => a + o.spend, 0);
   });
 
-  return { hotels, lapsed, periods: P, excludedCount, minDate, maxDate, propertyFoodSpend };
+  return {
+    hotels,
+    lapsed,
+    periods: P,
+    excludedCount,
+    minDate,
+    maxDate,
+    propertyFoodSpend,
+    datasetMinDate,
+    datasetMaxDate,
+  };
 }

@@ -25,6 +25,7 @@ import {
   dC,
   tierLbl,
   tierOf,
+  mtdWindow,
 } from './lib/analysis';
 import {
   upsertOrders,
@@ -173,6 +174,40 @@ function fmtGoLive(s: string): string {
 
 function fmtDDMMM(d: Date): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+}
+
+/** Local "YYYY-MM-DD" — what <input type="date"> expects. */
+function toInputDate(d: Date): string {
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mo}-${day}`;
+}
+
+/**
+ * Column labels for the three MTD comparison windows. Derived from the same
+ * mtdWindow() the scoring uses, so the header always matches what was counted
+ * (including months shorter than the anchor's day-of-month).
+ */
+function mtdLabels(anchor: Date): [string, string, string] {
+  const cutoffDay = anchor.getDate();
+  const label = (monthsBack: number) => {
+    const { start, end } = mtdWindow(anchor, monthsBack, cutoffDay);
+    const mon = start.toLocaleString('en-US', { month: 'short' });
+    return `${mon} 1 – ${mon} ${end.getDate()}`;
+  };
+  return [label(0), label(1), label(2)];
+}
+
+/** Selectable range for the analysis-end picker, from the data's full extent. */
+function boundsOf(result: {
+  datasetMinDate: Date | null;
+  datasetMaxDate: Date | null;
+}): { min: string; max: string } | null {
+  if (!result.datasetMinDate || !result.datasetMaxDate) return null;
+  return {
+    min: toInputDate(result.datasetMinDate),
+    max: toInputDate(result.datasetMaxDate),
+  };
 }
 
 // ---- Sub-components ----
@@ -998,6 +1033,10 @@ export default function Home() {
   const [outreach, setOutreach] = useState<Record<string, OutreachRecord>>({});
   const [outreachBusy, setOutreachBusy] = useState<string | null>(null);
 
+  // Analysis window: last day of the 90-day window. '' = latest order in data.
+  const [analysisEnd, setAnalysisEnd] = useState<string>('');
+  const [datasetBounds, setDatasetBounds] = useState<{ min: string; max: string } | null>(null);
+
   // UI state
   const [activeTab, setActiveTab] = useState<Tab>('dash');
   const [filter, setFilter] = useState<Tier | 'all'>('all');
@@ -1149,15 +1188,7 @@ export default function Home() {
             return next;
           });
 
-          // MTD labels
-          const mx = result.maxDate;
-          const endDay = mx.getDate();
-          const mtd1Range = `${mx.toLocaleString('en-US', { month: 'short' })} 1 – ${mx.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
-          const mtd2End = new Date(mx.getFullYear(), mx.getMonth() - 1, endDay);
-          const mtd2Range = `${mtd2End.toLocaleString('en-US', { month: 'short' })} 1 – ${mtd2End.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
-          const mtd3End = new Date(mx.getFullYear(), mx.getMonth() - 2, endDay);
-          const mtd3Range = `${mtd3End.toLocaleString('en-US', { month: 'short' })} 1 – ${mtd3End.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
-          setMtdMonths([mtd1Range, mtd2Range, mtd3Range]);
+          setMtdMonths(mtdLabels(result.maxDate));
 
           setHotels(result.hotels);
           setLapsed(result.lapsed);
@@ -1165,6 +1196,7 @@ export default function Home() {
           setExcludedCount(result.excludedCount);
           setDataMinDate(result.minDate);
           setDataMaxDate(result.maxDate);
+          setDatasetBounds(boundsOf(result));
           setAnalyzed(true);
           setActiveTab('dash');
           setFilter('all');
@@ -1244,7 +1276,9 @@ export default function Home() {
 
   const handleRunAnalysis = useCallback(async (
     presetRows?: Record<string, string>[],
-    presetMapping?: ColumnMapping
+    presetMapping?: ColumnMapping,
+    /** Pass to analyse as of a specific day; omit to use the current selection. */
+    presetAnalysisEnd?: string
   ) => {
     const baseMapping = presetMapping ?? mapping;
     const baseRows = presetRows ?? csvRows;
@@ -1303,6 +1337,7 @@ export default function Home() {
       foodProperties,
       excludedProperties,
       goLiveDates,
+      analysisEnd: presetAnalysisEnd ?? analysisEnd,
     });
 
     if (!result.hotels.length) {
@@ -1379,14 +1414,7 @@ export default function Home() {
       return next;
     });
 
-    const mx = result.maxDate;
-    const endDay = mx.getDate();
-    const mtd1Range = `${mx.toLocaleString('en-US', { month: 'short' })} 1 – ${mx.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
-    const mtd2End = new Date(mx.getFullYear(), mx.getMonth() - 1, endDay);
-    const mtd2Range = `${mtd2End.toLocaleString('en-US', { month: 'short' })} 1 – ${mtd2End.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
-    const mtd3End = new Date(mx.getFullYear(), mx.getMonth() - 2, endDay);
-    const mtd3Range = `${mtd3End.toLocaleString('en-US', { month: 'short' })} 1 – ${mtd3End.toLocaleString('en-US', { month: 'short' })} ${endDay}`;
-    setMtdMonths([mtd1Range, mtd2Range, mtd3Range]);
+    setMtdMonths(mtdLabels(result.maxDate));
 
     setHotels(result.hotels);
     setLapsed(result.lapsed);
@@ -1394,13 +1422,14 @@ export default function Home() {
     setExcludedCount(result.excludedCount);
     setDataMinDate(result.minDate);
     setDataMaxDate(result.maxDate);
+    setDatasetBounds(boundsOf(result));
     setAnalyzed(true);
     setActiveTab('dash');
     setFilter('all');
     setSearch('');
     setExpanded(null);
     showToast(`${result.hotels.length} properties · ${result.lapsed.length} lapsed users`);
-  }, [mapping, csvRows, companyRows, vendorRows, foodProperties, excludedProperties, goLiveDates, showToast]);
+  }, [mapping, csvRows, companyRows, vendorRows, foodProperties, excludedProperties, goLiveDates, analysisEnd, showToast]);
 
   // Save settings to DB then re-analyze
   const handleSaveAndReanalyze = useCallback(async () => {
@@ -1836,13 +1865,47 @@ export default function Home() {
           {/* Dashboard tab */}
           {analyzed && activeTab === 'dash' && (
             <div>
-              {/* Date range banner */}
+              {/* Date range banner + analysis window picker */}
               {dataMinDate && dataMaxDate && (
                 <div className="date-range-banner">
-                  Analyzing orders from{' '}
-                  <strong>{fmtDDMMMYYYY(dataMinDate)}</strong>
-                  {' '}to{' '}
-                  <strong>{fmtDDMMMYYYY(dataMaxDate)}</strong>
+                  <span>
+                    Data available{' '}
+                    <strong>{datasetBounds ? fmtGoLive(datasetBounds.min) : fmtDDMMMYYYY(dataMinDate)}</strong>
+                    {' '}to{' '}
+                    <strong>{datasetBounds ? fmtGoLive(datasetBounds.max) : fmtDDMMMYYYY(dataMaxDate)}</strong>
+                    {analysisEnd && (
+                      <span className="window-badge">as of {fmtDDMMMYYYY(dataMaxDate)}</span>
+                    )}
+                  </span>
+
+                  <div className="window-picker">
+                    <label htmlFor="analysis-end">Analyse 90 days ending</label>
+                    <input
+                      id="analysis-end"
+                      type="date"
+                      value={analysisEnd || (datasetBounds?.max ?? '')}
+                      min={datasetBounds?.min}
+                      max={datasetBounds?.max}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (!v) return;
+                        setAnalysisEnd(v);
+                        handleRunAnalysis(undefined, undefined, v);
+                      }}
+                    />
+                    {analysisEnd && (
+                      <button
+                        className="window-reset"
+                        title="Back to the latest 90 days"
+                        onClick={() => {
+                          setAnalysisEnd('');
+                          handleRunAnalysis(undefined, undefined, '');
+                        }}
+                      >
+                        Latest
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -1861,7 +1924,7 @@ export default function Home() {
                   </span>
                   <span style={{ color: 'var(--text3)' }}>→</span>
                   <span className="period-tag p1">
-                    P1 (latest): {fmtPeriodDate(periods.p1start)}–{fmtPeriodDate(periods.p1end)}
+                    P1{analysisEnd ? '' : ' (latest)'}: {fmtPeriodDate(periods.p1start)}–{fmtPeriodDate(periods.p1end)}
                   </span>
                   {excludedCount > 0 && (
                     <span style={{ marginLeft: 'auto', fontSize: 11 }}>
