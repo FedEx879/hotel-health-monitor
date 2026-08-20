@@ -35,6 +35,7 @@ import {
   loadOutreach,
   saveOutreach,
 } from './lib/dbClient';
+import { errMessage } from './lib/errors';
 import {
   ACTIVE_WINDOW_DAYS,
   computeFirstOrders,
@@ -1206,12 +1207,8 @@ export default function Home() {
         }
       } catch (e) {
         if (!cancelled) {
-          const msg = e instanceof Error
-            ? e.message
-            : (e as { message?: string })?.message
-              ? (e as { message: string }).message
-              : JSON.stringify(e);
-          setDbError(msg);
+          console.error('Startup load failed:', e);
+          setDbError(errMessage(e));
         }
       } finally {
         if (!cancelled) setDbLoading(false);
@@ -1727,7 +1724,11 @@ export default function Home() {
         </div>
       ) : dbError ? (
         <div className="db-error">
-          <p>Could not connect to database: {dbError}</p>
+          <p><strong>Could not load your data.</strong></p>
+          <p className="db-error-detail">{dbError}</p>
+          <button className="db-retry" onClick={() => window.location.reload()}>
+            Try again
+          </button>
         </div>
       ) : (
         <>

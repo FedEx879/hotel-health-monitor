@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { errMessage } from '@/app/lib/errors';
 import { loadOutreach, saveOutreach } from '@/app/lib/db';
 
 export async function GET() {
@@ -6,7 +7,7 @@ export async function GET() {
     const outreach = await loadOutreach();
     return NextResponse.json({ outreach });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    return NextResponse.json({ error: errMessage(e) }, { status: 500 });
   }
 }
 
@@ -32,6 +33,6 @@ export async function POST(request: Request) {
     const outreach = await loadOutreach();
     return NextResponse.json({ ok: true, outreach });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    return NextResponse.json({ error: errMessage(e) }, { status: 500 });
   }
 }

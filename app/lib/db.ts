@@ -1,4 +1,5 @@
 import { supabaseServer as supabase } from './supabaseServer'
+import { dbError } from './errors'
 import type { OutreachRecord, RawOrderRow, SettingsPayload } from './types'
 
 export async function upsertOrders(
@@ -30,43 +31,65 @@ export async function upsertOrders(
     })
     .select();
 
-  if (error) throw error;
+  if (error) throw dbError('save orders', error);
 
   const inserted = data?.length ?? 0;
   return { inserted, total: dbRows.length };
 }
 
+const ORDER_COLS =
+  'order_id, property, spend, order_date, company, vendor, user_email, user_name, status, csm, go_live_date';
+
+function toRawOrderRow(row: Record<string, unknown>): RawOrderRow {
+  return {
+    order_id: (row.order_id as string) ?? '',
+    property: (row.property as string) ?? '',
+    spend: (row.spend as number) ?? 0,
+    order_date: (row.order_date as string) ?? '',
+    company: (row.company as string) ?? '',
+    vendor: (row.vendor as string) ?? '',
+    user_email: (row.user_email as string) ?? '',
+    user_name: (row.user_name as string) ?? '',
+    status: (row.status as string) ?? '',
+    csm: (row.csm as string) ?? '',
+    go_live_date: (row.go_live_date as string) ?? '',
+  };
+}
+
 export async function fetchAllOrders(): Promise<RawOrderRow[]> {
+  // Supabase caps a response at 1000 rows, so a full read is always paged.
   const PAGE = 1000;
-  let allRows: RawOrderRow[] = [];
-  let from = 0;
 
-  while (true) {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('order_id, property, spend, order_date, company, vendor, user_email, user_name, status, csm, go_live_date')
-      .order('order_date', { ascending: true })
-      .range(from, from + PAGE - 1);
+  const { count, error: countError } = await supabase
+    .from('orders')
+    .select('order_id', { count: 'exact', head: true });
+  if (countError) throw dbError('count orders', countError);
 
-    if (error) throw error;
-    if (!data || data.length === 0) break;
+  const total = count ?? 0;
+  if (total === 0) return [];
 
-    allRows = allRows.concat(data.map((row) => ({
-      order_id: row.order_id ?? '',
-      property: row.property ?? '',
-      spend: row.spend ?? 0,
-      order_date: row.order_date ?? '',
-      company: row.company ?? '',
-      vendor: row.vendor ?? '',
-      user_email: row.user_email ?? '',
-      user_name: row.user_name ?? '',
-      status: row.status ?? '',
-      csm: row.csm ?? '',
-      go_live_date: row.go_live_date ?? '',
-    })));
+  // Fetch the pages concurrently rather than one after another: this runs
+  // inside a serverless function with a hard time limit, and sequential
+  // round-trips were the slowest part of loading the app.
+  const pageCount = Math.ceil(total / PAGE);
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, i) =>
+      supabase
+        .from('orders')
+        .select(ORDER_COLS)
+        // order_id is the tiebreaker: ordering by date alone leaves rows that
+        // share a date in an arbitrary order, so concurrent page slices could
+        // repeat or drop rows.
+        .order('order_date', { ascending: true })
+        .order('order_id', { ascending: true })
+        .range(i * PAGE, i * PAGE + PAGE - 1)
+    )
+  );
 
-    if (data.length < PAGE) break;
-    from += PAGE;
+  const allRows: RawOrderRow[] = [];
+  for (const page of pages) {
+    if (page.error) throw dbError('load orders', page.error);
+    for (const row of page.data ?? []) allRows.push(toRawOrderRow(row));
   }
 
   return allRows;
@@ -96,7 +119,7 @@ export async function saveSettings(settings: SettingsPayload): Promise<void> {
     const { error } = await supabase
       .from('company_settings')
       .upsert(companyData, { onConflict: 'company' });
-    if (error) throw error;
+    if (error) throw dbError('save company settings', error);
   }
 
   // property_settings — merge excludedProperties and foodProperties
@@ -117,7 +140,7 @@ export async function saveSettings(settings: SettingsPayload): Promise<void> {
     const { error } = await supabase
       .from('property_settings')
       .upsert(propertyData, { onConflict: 'property' });
-    if (error) throw error;
+    if (error) throw dbError('save property settings', error);
   }
 
   // vendor_settings
@@ -130,7 +153,7 @@ export async function saveSettings(settings: SettingsPayload): Promise<void> {
     const { error } = await supabase
       .from('vendor_settings')
       .upsert(vendorData, { onConflict: 'vendor' });
-    if (error) throw error;
+    if (error) throw dbError('save vendor settings', error);
   }
 }
 
@@ -141,9 +164,9 @@ export async function loadSettings(): Promise<SettingsPayload | null> {
     supabase.from('vendor_settings').select('*'),
   ]);
 
-  if (companiesRes.error) throw companiesRes.error;
-  if (propertiesRes.error) throw propertiesRes.error;
-  if (vendorsRes.error) throw vendorsRes.error;
+  if (companiesRes.error) throw dbError('load company settings', companiesRes.error);
+  if (propertiesRes.error) throw dbError('load property settings', propertiesRes.error);
+  if (vendorsRes.error) throw dbError('load vendor settings', vendorsRes.error);
 
   const companies = companiesRes.data ?? [];
   const properties = propertiesRes.data ?? [];
@@ -213,7 +236,7 @@ export async function loadOutreach(): Promise<Record<string, OutreachRecord>> {
     .from('first_order_outreach')
     .select('user_email, property, archived, archived_at, email_sent_at');
 
-  if (error) throw error;
+  if (error) throw dbError('load first-order outreach', error);
 
   const out: Record<string, OutreachRecord> = {};
   for (const row of data ?? []) {
@@ -254,5 +277,5 @@ export async function saveOutreach(
     .from('first_order_outreach')
     .upsert(row, { onConflict: 'user_email,property' });
 
-  if (error) throw error;
+  if (error) throw dbError('save first-order outreach', error);
 }

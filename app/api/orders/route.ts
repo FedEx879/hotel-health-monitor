@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { errMessage } from '@/app/lib/errors';
 import { fetchAllOrders, upsertOrders } from '@/app/lib/db';
 import type { RawOrderRow } from '@/app/lib/types';
 
@@ -9,7 +10,7 @@ export async function GET() {
     const rows = await fetchAllOrders();
     return NextResponse.json({ rows });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    return NextResponse.json({ error: errMessage(e) }, { status: 500 });
   }
 }
 
@@ -20,6 +21,6 @@ export async function POST(request: Request) {
     const result = await upsertOrders(rows);
     return NextResponse.json(result);
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    return NextResponse.json({ error: errMessage(e) }, { status: 500 });
   }
 }
