@@ -1068,12 +1068,29 @@ export default function Home() {
     async function init() {
       setDbLoading(true);
       try {
-        const [settings, dbRows, outreachMap] = await Promise.all([
-          loadSettings(),
+        // Orders are the only load worth failing over. Settings and outreach
+        // fall back to empty so a hiccup on one of them cannot blank the
+        // dashboard; each is reported instead.
+        const [ordersResult, settingsResult, outreachResult] = await Promise.allSettled([
           fetchAllOrders(),
-          loadOutreach().catch(() => ({})),
+          loadSettings(),
+          loadOutreach(),
         ]);
         if (cancelled) return;
+
+        if (ordersResult.status === 'rejected') throw ordersResult.reason;
+        const dbRows = ordersResult.value;
+
+        const settings = settingsResult.status === 'fulfilled' ? settingsResult.value : null;
+        const outreachMap = outreachResult.status === 'fulfilled' ? outreachResult.value : {};
+
+        if (settingsResult.status === 'rejected') {
+          console.error('Settings failed to load:', settingsResult.reason);
+          showToast('Your saved settings could not be loaded — showing defaults.');
+        }
+        if (outreachResult.status === 'rejected') {
+          console.error('First-order outreach failed to load:', outreachResult.reason);
+        }
 
         setOrderRows(dbRows);
         setOutreach(outreachMap);

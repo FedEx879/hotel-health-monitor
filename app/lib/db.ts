@@ -1,5 +1,6 @@
 import { supabaseServer as supabase } from './supabaseServer'
 import { dbError } from './errors'
+import { canonicalProperty } from './propertyMerges'
 import type { OutreachRecord, RawOrderRow, SettingsPayload } from './types'
 
 export async function upsertOrders(
@@ -43,7 +44,8 @@ const ORDER_COLS =
 function toRawOrderRow(row: Record<string, unknown>): RawOrderRow {
   return {
     order_id: (row.order_id as string) ?? '',
-    property: (row.property as string) ?? '',
+    // Merged hotels are collapsed on read; the stored row keeps Lilo's name.
+    property: canonicalProperty((row.property as string) ?? ''),
     spend: (row.spend as number) ?? 0,
     order_date: (row.order_date as string) ?? '',
     company: (row.company as string) ?? '',
@@ -186,16 +188,22 @@ export async function loadSettings(): Promise<SettingsPayload | null> {
   const foodProperties: Record<string, boolean> = {};
   const propertiesByCompany: Record<string, string[]> = {};
 
+  // Several stored rows can collapse onto one merged hotel, so settings are
+  // combined rather than last-one-wins: stay visible if any part was enabled,
+  // and analyse food if any part did.
   properties.forEach((p) => {
-    const prop = p.property as string;
-    excludedProperties[prop] = (p.enabled as boolean) ?? true;
+    const prop = canonicalProperty(p.property as string);
+    const enabled = (p.enabled as boolean) ?? true;
+    excludedProperties[prop] = (excludedProperties[prop] ?? false) || enabled;
+
     if (p.food_analysis !== null && p.food_analysis !== undefined) {
-      foodProperties[prop] = p.food_analysis as boolean;
+      foodProperties[prop] = (foodProperties[prop] ?? false) || (p.food_analysis as boolean);
     }
+
     if (p.company) {
       const co = p.company as string;
       if (!propertiesByCompany[co]) propertiesByCompany[co] = [];
-      propertiesByCompany[co].push(prop);
+      if (!propertiesByCompany[co].includes(prop)) propertiesByCompany[co].push(prop);
     }
   });
 
@@ -210,7 +218,12 @@ export async function loadSettings(): Promise<SettingsPayload | null> {
     if (c.go_live_date) goLiveDates[`company:${c.company}`] = c.go_live_date as string;
   });
   properties.forEach((p) => {
-    if (p.go_live_date) goLiveDates[`property:${p.property}`] = p.go_live_date as string;
+    if (!p.go_live_date) return;
+    // Merged parts can carry different go-live dates; the hotel went live on
+    // the earliest of them.
+    const key = `property:${canonicalProperty(p.property as string)}`;
+    const date = p.go_live_date as string;
+    if (!goLiveDates[key] || date < goLiveDates[key]) goLiveDates[key] = date;
   });
 
   // csmOverrides
@@ -240,11 +253,22 @@ export async function loadOutreach(): Promise<Record<string, OutreachRecord>> {
 
   const out: Record<string, OutreachRecord> = {};
   for (const row of data ?? []) {
-    out[`${row.user_email}||${row.property}`] = {
+    const key = `${row.user_email}||${canonicalProperty(row.property as string)}`;
+    const rec: OutreachRecord = {
       archived: (row.archived as boolean) ?? false,
       archivedAt: (row.archived_at as string) ?? null,
       emailSentAt: (row.email_sent_at as string) ?? null,
     };
+    // A merge can point two stored rows at one user+hotel: keep the work
+    // already done rather than letting whichever row loaded last win.
+    const prev = out[key];
+    out[key] = prev
+      ? {
+          archived: prev.archived || rec.archived,
+          archivedAt: prev.archivedAt ?? rec.archivedAt,
+          emailSentAt: prev.emailSentAt ?? rec.emailSentAt,
+        }
+      : rec;
   }
   return out;
 }
@@ -260,7 +284,8 @@ export async function saveOutreach(
 ): Promise<void> {
   const row: Record<string, unknown> = {
     user_email: userEmail,
-    property,
+    // Store under the merged name so it matches what the page reads back.
+    property: canonicalProperty(property),
     updated_at: new Date().toISOString(),
   };
 

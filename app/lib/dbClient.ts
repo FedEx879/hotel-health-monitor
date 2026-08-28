@@ -5,20 +5,58 @@
 import { errMessage } from './errors';
 import type { OutreachRecord, RawOrderRow, SettingsPayload } from './types';
 
+/** Hard ceiling per attempt, so a hung request retries instead of hanging. */
+const REQUEST_TIMEOUT_MS = 25_000;
+/** Extra attempts after the first, for reads only. */
+const GET_RETRIES = 2;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /**
  * Fetch one of our API routes and return its parsed JSON.
  *
  * Failures have to stay readable: a route can answer with JSON that carries an
  * `error`, but a gateway timeout or a crash answers with HTML, so parsing is
  * attempted and then reported rather than thrown raw.
+ *
+ * Reads are retried. The first page load wakes three cold serverless
+ * functions at once and the heaviest can exceed the platform's time limit;
+ * that attempt fails while the next one, now warm, succeeds. Retrying here is
+ * what stops it surfacing as an error the user has to dismiss. Only GETs are
+ * retried — a write is left to the caller so nothing is repeated unexpectedly.
  */
 async function apiRequest<T>(url: string, init?: RequestInit): Promise<T> {
+  const isRead = !init?.method || init.method.toUpperCase() === 'GET';
+  const attempts = isRead ? GET_RETRIES + 1 : 1;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await attemptRequest<T>(url, init);
+    } catch (e) {
+      lastError = e;
+      if (attempt === attempts) break;
+      // 1s, then 2s — long enough for a cold function to finish booting.
+      await sleep(1000 * attempt);
+    }
+  }
+  throw lastError;
+}
+
+async function attemptRequest<T>(url: string, init?: RequestInit): Promise<T> {
   let res: Response;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    res = await fetch(url, init);
+    res = await fetch(url, { ...init, signal: controller.signal });
   } catch (e) {
-    // Offline, DNS failure, request blocked — never reached the server.
+    // Offline, DNS failure, request blocked, or our own timeout.
+    if (controller.signal.aborted) {
+      throw new Error(`Request to ${url} timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+    }
     throw new Error(`Network request to ${url} failed: ${errMessage(e)}`);
+  } finally {
+    clearTimeout(timer);
   }
 
   const raw = await res.text().catch(() => '');
