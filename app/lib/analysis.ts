@@ -130,8 +130,13 @@ export function pct(c: number, p: number): number | null {
   return ((c - p) / p) * 100;
 }
 
+/** Score at or above which a hotel counts as Healthy. */
+export const TIER_GREEN_MIN = 70;
+/** Score at or above which a hotel counts as Watch rather than At risk. */
+export const TIER_AMBER_MIN = 40;
+
 export function tierOf(score: number): Tier {
-  return score >= 75 ? 'green' : score >= 40 ? 'amber' : 'red';
+  return score >= TIER_GREEN_MIN ? 'green' : score >= TIER_AMBER_MIN ? 'amber' : 'red';
 }
 
 export function tierLbl(t: Tier): string {
