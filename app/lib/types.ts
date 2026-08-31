@@ -91,6 +91,11 @@ export interface AnalysisResult {
   /** Full extent of the loaded data, ignoring the analysis window. */
   datasetMinDate: Date | null;
   datasetMaxDate: Date | null;
+  /**
+   * Last-30-day spend across every company and property, including those
+   * switched off in Settings (which only controls dashboard visibility).
+   */
+  totalSpendP1All: number;
 }
 
 export interface ColumnMapping {

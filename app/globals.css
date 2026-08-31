@@ -226,6 +226,8 @@ body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; backg
 .settings-row:hover { background:var(--surface2); }
 .settings-row.disabled { opacity:.5; }
 .settings-name { font-size:13px; flex:1; }
+.settings-csm { font-size:12px; padding:4px 8px; border:0.5px solid var(--border2); border-radius:var(--radius); background:var(--surface2); color:var(--text); width:150px; flex-shrink:0; cursor:pointer; }
+.settings-csm:focus { outline:2px solid var(--blue); outline-offset:1px; }
 .settings-reason { font-size:12px; padding:4px 8px; border:0.5px solid var(--border2); border-radius:var(--radius); background:var(--surface2); color:var(--text); width:220px; }
 .settings-reason:focus { outline:2px solid var(--blue); outline-offset:1px; }
 .settings-food-tag { font-size:10px; font-weight:600; padding:2px 7px; border-radius:8px; background:var(--food-bg); color:var(--food-text); flex-shrink:0; }

@@ -434,6 +434,14 @@ export function runAnalysis(
   // MTD cutoff: day-of-month of the anchor
   const mtdCutoffDay = anchorDay.getDate();
 
+  // Last-30-day spend across the whole book, including companies and
+  // properties switched off in Settings. Those switches only decide who is
+  // listed on the dashboard; the business total still counts everyone.
+  // Cancelled and declined orders stay excluded — they are not real spend.
+  const totalSpendP1All = validOrders
+    .filter((o) => o.date >= P.p1start && o.date <= P.p1end)
+    .reduce((sum, o) => sum + o.spend, 0);
+
   // Build property → go-live date lookup from raw rows (before filtering)
   const propGoLive: Record<string, string> = {};
   if (mGoLiveCol) {
@@ -660,5 +668,6 @@ export function runAnalysis(
     propertyFoodSpend,
     datasetMinDate,
     datasetMaxDate,
+    totalSpendP1All,
   };
 }

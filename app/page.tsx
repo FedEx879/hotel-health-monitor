@@ -646,6 +646,8 @@ interface SettingsTabProps {
   excludedProperties: Record<string, boolean>;
   propertiesByCompany: Record<string, string[]>;
   goLiveDates: Record<string, string>;
+  csmOverrides: Record<string, string>;
+  onCsmChange: (company: string, csm: string) => void;
   onCompanyChange: (name: string, field: 'enabled' | 'reason', value: boolean | string) => void;
   onVendorChange: (name: string, isFood: boolean) => void;
   onSelectAllCompanies: (val: boolean) => void;
@@ -711,6 +713,8 @@ function SettingsTab({
   excludedProperties,
   propertiesByCompany,
   goLiveDates,
+  csmOverrides,
+  onCsmChange,
   onCompanyChange,
   onVendorChange,
   onSelectAllCompanies,
@@ -782,7 +786,8 @@ function SettingsTab({
         <div className="settings-section-header">
           <h3>Companies</h3>
           <p className="settings-desc">
-            Uncheck a company to exclude it from the analysis entirely.
+            Uncheck a company to hide it from the dashboard. Its spend still
+            counts toward Total spend last 30d.
           </p>
         </div>
         <div className="settings-toolbar">
@@ -827,6 +832,18 @@ function SettingsTab({
                     />
                   )}
                   <span className="settings-name">{c.name}</span>
+                  <select
+                    className="settings-csm"
+                    value={csmOverrides[c.name] ?? CSM_OPTIONS[0]}
+                    onChange={(e) => onCsmChange(c.name, e.target.value)}
+                    title="CSM owner"
+                  >
+                    {CSM_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
                   <input
                     type="text"
                     className="settings-reason"
@@ -1034,6 +1051,9 @@ export default function Home() {
   const [outreach, setOutreach] = useState<Record<string, OutreachRecord>>({});
   const [outreachBusy, setOutreachBusy] = useState<string | null>(null);
 
+  // Last-30-day spend across everything, ignoring the Settings on/off toggles.
+  const [totalSpendAll, setTotalSpendAll] = useState(0);
+
   // Analysis window: last day of the 90-day window. '' = latest order in data.
   const [analysisEnd, setAnalysisEnd] = useState<string>('');
   const [datasetBounds, setDatasetBounds] = useState<{ min: string; max: string } | null>(null);
@@ -1215,6 +1235,7 @@ export default function Home() {
           setDataMinDate(result.minDate);
           setDataMaxDate(result.maxDate);
           setDatasetBounds(boundsOf(result));
+          setTotalSpendAll(result.totalSpendP1All);
           setAnalyzed(true);
           setActiveTab('dash');
           setFilter('all');
@@ -1437,6 +1458,7 @@ export default function Home() {
     setDataMinDate(result.minDate);
     setDataMaxDate(result.maxDate);
     setDatasetBounds(boundsOf(result));
+    setTotalSpendAll(result.totalSpendP1All);
     setAnalyzed(true);
     setActiveTab('dash');
     setFilter('all');
@@ -1659,7 +1681,6 @@ export default function Home() {
     });
 
   const lapsedTotalAtRisk = lapsed.reduce((a, l) => a + l.priorSpend, 0);
-  const totalSpend = hotels.reduce((a, h) => a + h.overall.spend, 0);
   const dangerCount = hotels.filter((h) => h.tier === 'red').length;
   const warnCount = hotels.filter((h) => h.tier === 'amber').length;
 
@@ -1708,6 +1729,11 @@ export default function Home() {
 
   const handleGoLiveDateChange = useCallback((key: string, value: string) => {
     setGoLiveDates((prev) => ({ ...prev, [key]: value }));
+  }, []);
+
+  /** Same store the dashboard's CSM picker writes to, so both stay in step. */
+  const handleCsmChange = useCallback((company: string, csm: string) => {
+    setCsmOverrides((prev) => ({ ...prev, [company]: csm }));
   }, []);
 
   return (
@@ -1967,7 +1993,7 @@ export default function Home() {
                   <div className="lbl">Watch list</div>
                 </div>
                 <div className="s-card green">
-                  <div className="val">${(totalSpend / 1000).toFixed(1)}k</div>
+                  <div className="val">${(totalSpendAll / 1000).toFixed(1)}k</div>
                   <div className="lbl">Total spend last 30d</div>
                 </div>
               </div>
@@ -2206,6 +2232,8 @@ export default function Home() {
               excludedProperties={excludedProperties}
               propertiesByCompany={propertiesByCompany}
               goLiveDates={goLiveDates}
+              csmOverrides={csmOverrides}
+              onCsmChange={handleCsmChange}
               onCompanyChange={handleCompanyChange}
               onVendorChange={handleVendorChange}
               onSelectAllCompanies={handleSelectAllCompanies}
