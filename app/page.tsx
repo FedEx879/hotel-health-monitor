@@ -26,6 +26,7 @@ import {
   tierLbl,
   tierOf,
   mtdWindow,
+  isFood,
 } from './lib/analysis';
 import {
   upsertOrders,
@@ -175,6 +176,31 @@ function fmtGoLive(s: string): string {
 
 function fmtDDMMM(d: Date): string {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+}
+
+/**
+ * Add companies found in the data that have no saved settings row yet, keeping
+ * every existing row as-is. Without this a company that starts ordering after
+ * settings were first saved never appears in Settings, so it cannot be
+ * disabled and its CSM cannot be stored.
+ */
+function mergeCompanyRows(existing: CompanyRow[], namesInData: string[]): CompanyRow[] {
+  const known = new Set(existing.map((c) => c.name));
+  const added = namesInData
+    .filter((name) => name && !known.has(name))
+    .map((name) => ({ name, enabled: true, reason: '' }));
+  if (!added.length) return existing;
+  return [...existing, ...added].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Same for vendors, so a new food distributor is classified from the start. */
+function mergeVendorRows(existing: VendorRow[], namesInData: string[]): VendorRow[] {
+  const known = new Set(existing.map((v) => v.name));
+  const added = namesInData
+    .filter((name) => name && !known.has(name))
+    .map((name) => ({ name, isFood: isFood(name) }));
+  if (!added.length) return existing;
+  return [...existing, ...added].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** Local "YYYY-MM-DD" — what <input type="date"> expects. */
@@ -1163,24 +1189,16 @@ export default function Home() {
           setUploadLabel({ name: 'database', count: dbRows.length });
           dataSource.current = 'db';
 
-          // Initialize company rows if not in DB settings
-          if (loadedCompanyRows.length === 0) {
-            const uniqueCompanies = [...new Set(result.hotels.map((h) => h.company))].sort();
-            setCompanyRows(uniqueCompanies.map((name) => ({ name, enabled: true, reason: '' })));
-          }
+          // Companies and vendors seen in the data but not yet in the saved
+          // settings are added here, so ones that start ordering later still
+          // show up in Settings.
+          const companiesInData = [...new Set(result.hotels.map((h) => h.company))].sort();
+          setCompanyRows(mergeCompanyRows(loadedCompanyRows, companiesInData));
 
-          // Initialize vendor rows if not in DB settings
-          if (loadedVendorRows.length === 0) {
-            const rawVendors = [
-              ...new Set(records.map((r) => r['vendor'] || '').filter(Boolean)),
-            ].sort();
-            setVendorRows(
-              rawVendors.map((name) => ({
-                name,
-                isFood: FOOD_VENDORS.some((fv) => name.toLowerCase().includes(fv)),
-              }))
-            );
-          }
+          const vendorsInData = [
+            ...new Set(records.map((r) => r['vendor'] || '').filter(Boolean)),
+          ].sort();
+          setVendorRows(mergeVendorRows(loadedVendorRows, vendorsInData));
 
           // Initialize food properties for any property not already in loaded settings
           setFoodProperties((prev) => {
@@ -1380,28 +1398,20 @@ export default function Home() {
       return;
     }
 
-    // Initialize settings state from result (only on first run or when no settings yet)
-    if (companyRows.length === 0) {
-      const uniqueCompanies = [...new Set(result.hotels.map((h) => h.company))].sort();
-      setCompanyRows(uniqueCompanies.map((name) => ({ name, enabled: true, reason: '' })));
-    }
+    // Pick up companies and vendors that are new to the data, keeping whatever
+    // is already configured.
+    const companiesInData = [...new Set(result.hotels.map((h) => h.company))].sort();
+    setCompanyRows((prev) => mergeCompanyRows(prev, companiesInData));
 
-    if (vendorRows.length === 0 && mappingToUse.mVendor) {
-      // Extract unique vendors from raw rows
-      const rawVendors = [
+    if (mappingToUse.mVendor) {
+      const vendorsInData = [
         ...new Set(
           rowsToAnalyze
             .map((r) => (mappingToUse.mVendor ? r[mappingToUse.mVendor] : ''))
             .filter(Boolean)
         ),
       ].sort();
-      const normalized = FOOD_VENDORS;
-      setVendorRows(
-        rawVendors.map((name) => ({
-          name,
-          isFood: normalized.some((fv) => name.toLowerCase().includes(fv)),
-        }))
-      );
+      setVendorRows((prev) => mergeVendorRows(prev, vendorsInData));
     }
 
     // Initialize foodProperties for any property not already in state
