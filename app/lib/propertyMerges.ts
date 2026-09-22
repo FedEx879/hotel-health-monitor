@@ -34,6 +34,16 @@ export const PROPERTY_MERGES: MergeRule[] = [
       'Tru by Hilton Houston Downtown Convention Center',
     ],
   },
+  {
+    // Two lodging types at one resort, sharing a go-live date. Listed by name
+    // rather than by prefix so a genuinely separate Sundance property would
+    // not be swept in on its own.
+    canonical: 'Sundance Mountain Resort',
+    aliases: [
+      'Sundance Mountain Resort Inn',
+      'Sundance Mountain Resort Cottages',
+    ],
+  },
 ];
 
 const exactAliases = new Map<string, string>();
