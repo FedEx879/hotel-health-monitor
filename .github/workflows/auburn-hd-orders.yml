@@ -1,0 +1,30 @@
+name: Auburn HD Supply orders → Sheet
+
+on:
+  schedule:
+    # 11:00 UTC Monday = 07:00 in Santiago (UTC-4). Shifts an hour when Chile
+    # is on DST (UTC-3); GitHub cron has no timezone support, so adjust here.
+    - cron: '0 11 * * 1'
+  workflow_dispatch: # lets you run it by hand from the Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    # Pages are ~6-11 MB and ~30s each; the script's own cap is 15 pages.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - run: node scripts/auburn-hd-orders.mjs
+        env:
+          LILO_API_TOKEN: ${{ secrets.LILO_API_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SHEET_TAB: HD Orders in Lilo

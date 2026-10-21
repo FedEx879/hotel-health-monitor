@@ -8,3 +8,4 @@ node_modules/
 # Uploaded data exports (never commit)
 *Updated Health Score.csv
 *.csv
+*.xlsx
