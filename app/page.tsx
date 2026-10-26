@@ -1580,8 +1580,42 @@ export default function Home() {
     [csmOverrides]
   );
 
+  /**
+   * Companies still onboarding: every hotel they have placed its first order
+   * within the last 30 days. Computed over all hotels, never the filtered
+   * ones — otherwise a tier or search filter could leave only the newest
+   * hotels visible and make an established company look new.
+   */
+  const onboardingCompanies = useMemo(() => {
+    const out = new Set<string>();
+    if (!dataMaxDate) return out;
+    const byCo: Record<string, Hotel[]> = {};
+    hotels.forEach((h) => {
+      (byCo[h.company] = byCo[h.company] || []).push(h);
+    });
+    for (const [company, list] of Object.entries(byCo)) {
+      const allNew = list.every((h) => {
+        if (!h.firstOrder) return false;
+        return Math.round((dataMaxDate.getTime() - h.firstOrder.getTime()) / 86400000) <= 30;
+      });
+      if (allNew) out.add(company);
+    }
+    return out;
+  }, [hotels, dataMaxDate]);
+
+  /**
+   * A hotel still onboarding keeps its score on screen for reference, but is
+   * left out of the At risk / Watch / Healthy tallies and filters: 30 days of
+   * history is not enough to call it healthy or at risk.
+   */
+  const isOnboarding = useCallback(
+    (h: Hotel) => onboardingCompanies.has(h.company),
+    [onboardingCompanies]
+  );
+
   const filteredHotels = hotels.filter((h) => {
-    if (filter !== 'all' && h.tier !== filter) return false;
+    // Tier filters describe rated hotels only.
+    if (filter !== 'all' && (isOnboarding(h) || h.tier !== filter)) return false;
     if (csmFilter !== 'all' && effectiveCsm(h) !== csmFilter) return false;
     const q = search.toLowerCase();
     if (q && !h.prop.toLowerCase().includes(q) && !h.company.toLowerCase().includes(q)) return false;
@@ -1595,20 +1629,6 @@ export default function Home() {
   const sortedCompanies = Object.keys(byCompany).sort((a, b) => a.localeCompare(b));
   sortedCompanies.forEach((c) => byCompany[c].sort((a, b) => b.sortScore - a.sortScore));
 
-  // Compute "New Onboarding" per company: all hotels have firstOrder within 30 days of dataMaxDate
-  const isNewOnboarding = useCallback(
-    (companyHotels: Hotel[]): boolean => {
-      if (!dataMaxDate || companyHotels.length === 0) return false;
-      return companyHotels.every((h) => {
-        if (!h.firstOrder) return false;
-        const daysDiff = Math.round(
-          (dataMaxDate.getTime() - h.firstOrder.getTime()) / 86400000
-        );
-        return daysDiff <= 30;
-      });
-    },
-    [dataMaxDate]
-  );
 
   // First Orders — each user's first order per hotel, split into the active
   // 4-week list and the archive.
@@ -1691,8 +1711,11 @@ export default function Home() {
     });
 
   const lapsedTotalAtRisk = lapsed.reduce((a, l) => a + l.priorSpend, 0);
-  const dangerCount = hotels.filter((h) => h.tier === 'red').length;
-  const warnCount = hotels.filter((h) => h.tier === 'amber').length;
+  // Hotels still onboarding are unrated, so they sit outside these tallies.
+  const ratedHotels = hotels.filter((h) => !isOnboarding(h));
+  const dangerCount = ratedHotels.filter((h) => h.tier === 'red').length;
+  const warnCount = ratedHotels.filter((h) => h.tier === 'amber').length;
+  const onboardingCount = hotels.length - ratedHotels.length;
 
   const arrow = (key: LapsedSortKey) =>
     lapsedSort.key === key ? (lapsedSort.dir === 'desc' ? ' ↓' : ' ↑') : '';
@@ -1992,7 +2015,14 @@ export default function Home() {
               <div className="summary-row">
                 <div className="s-card">
                   <div className="val">{hotels.length}</div>
-                  <div className="lbl">Properties tracked</div>
+                  <div className="lbl">
+                    Properties tracked
+                    {onboardingCount > 0 && (
+                      <span className="s-card-note">
+                        {' '}· {onboardingCount} onboarding, not yet scored
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="s-card red">
                   <div className="val">{dangerCount}</div>
@@ -2046,7 +2076,7 @@ export default function Home() {
               ) : (
                 sortedCompanies.map((company) => {
                   const g = byCompany[company];
-                  const newOnboarding = isNewOnboarding(g);
+                  const newOnboarding = onboardingCompanies.has(company);
                   const avgScore = companyAvgScore(g);
                   const avgTier = tierOf(avgScore);
                   const companyCsm =
@@ -2059,7 +2089,15 @@ export default function Home() {
                         {newOnboarding && (
                           <span className="new-onboarding-badge">New Onboarding</span>
                         )}
-                        <div className={`company-score ${avgTier}`}>{avgScore}</div>
+                        {/* No company score while onboarding — too little
+                            history for the average to mean anything. */}
+                        {newOnboarding ? (
+                          <div className="company-score pending" title="Scored once the hotels have more than 30 days of history">
+                            —
+                          </div>
+                        ) : (
+                          <div className={`company-score ${avgTier}`}>{avgScore}</div>
+                        )}
                         <div className="company-csm">
                           <select
                             value={companyCsm}
