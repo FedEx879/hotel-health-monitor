@@ -1071,6 +1071,7 @@ export default function Home() {
   const [dbError, setDbError] = useState<string | null>(null);
   const [dbOrderCount, setDbOrderCount] = useState(0);
   const [syncingLilo, setSyncingLilo] = useState(false);
+  const [syncProgress, setSyncProgress] = useState('');
 
   // First Orders: raw DB rows + persisted outreach state
   const [orderRows, setOrderRows] = useState<RawOrderRow[]>([]);
@@ -1499,22 +1500,68 @@ export default function Home() {
 
   // Pull all orders from Lilo, save to DB, then re-analyze
   const handleSyncLilo = useCallback(async () => {
+    // Lilo is slow, so the server fetches a couple of minutes' worth of orders
+    // per call and we loop, saving each round. If the tab is closed mid-sync,
+    // the position is remembered and the next click picks up from there.
+    const RESUME_KEY = 'liloSyncResume';
+    type Cursor = { skip: number; belowId: number | null };
+    const readResume = (): Cursor | null => {
+      try {
+        const v = localStorage.getItem(RESUME_KEY);
+        return v ? (JSON.parse(v) as Cursor) : null;
+      } catch {
+        return null;
+      }
+    };
+    const writeResume = (c: Cursor | null) => {
+      try {
+        if (c) localStorage.setItem(RESUME_KEY, JSON.stringify(c));
+        else localStorage.removeItem(RESUME_KEY);
+      } catch {
+        /* ignore */
+      }
+    };
+
     setSyncingLilo(true);
+    setSyncProgress('');
+    let insertedTotal = 0;
     try {
-      const res = await fetch('/api/lilo/orders');
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      const rows: RawOrderRow[] = data.rows ?? [];
-      if (!rows.length) {
-        showToast('Lilo returned no orders');
-        return;
+      let pendingResume = readResume();
+      let cursor: Cursor = { skip: 0, belowId: null };
+      let fromTop = true;
+      for (let round = 0; round < 60; round++) {
+        const qs = new URLSearchParams({ skip: String(cursor.skip) });
+        if (cursor.belowId != null) qs.set('belowId', String(cursor.belowId));
+        const res = await fetch(`/api/lilo/orders?${qs}`);
+        const data = await res.json().catch(() => ({
+          error: `HTTP ${res.status} (the server took too long or crashed)`,
+        }));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+        const rows: RawOrderRow[] = data.rows ?? [];
+        if (rows.length) {
+          const { inserted } = await upsertOrders(rows);
+          insertedTotal += inserted;
+        }
+        setSyncProgress(`${insertedTotal} new so far`);
+
+        if (data.done) {
+          if (fromTop && pendingResume) {
+            // Caught up at the top; now finish the run that was interrupted.
+            cursor = pendingResume;
+            pendingResume = null;
+            fromTop = false;
+            continue;
+          }
+          writeResume(null);
+          break;
+        }
+        cursor = { skip: data.nextSkip, belowId: data.minId ?? cursor.belowId };
+        // Remember the position (unless an older interrupted run is still waiting).
+        if (!pendingResume) writeResume(cursor);
       }
 
-      const { inserted, total } = await upsertOrders(rows);
-      const more = data.hitPageCap
-        ? ' · more remaining — click Sync again to continue'
-        : '';
-      showToast(`Lilo: ${inserted} new, ${total - inserted} duplicates${more}`);
+      showToast(insertedTotal ? `Lilo: ${insertedTotal} new orders` : 'Lilo: already up to date');
 
       const allDbRows = await fetchAllOrders();
       const records = rawOrderRowsToRecords(allDbRows);
@@ -1528,7 +1575,8 @@ export default function Home() {
 
       await handleRunAnalysis(records, DB_MAPPING);
     } catch (e) {
-      showToast(`Lilo sync failed: ${e instanceof Error ? e.message : String(e)}`);
+      const saved = insertedTotal ? ` (${insertedTotal} new orders were saved; click Sync again to continue)` : '';
+      showToast(`Lilo sync failed: ${e instanceof Error ? e.message : String(e)}${saved}`);
     } finally {
       setSyncingLilo(false);
     }
@@ -1862,7 +1910,9 @@ export default function Home() {
                 className={`ti ${syncingLilo ? 'ti-loader-2' : 'ti-refresh'}`}
                 style={{ verticalAlign: '-2px', marginRight: 5 }}
               />
-              {syncingLilo ? 'Syncing from Lilo…' : 'Sync from Lilo'}
+              {syncingLilo
+                ? `Syncing from Lilo…${syncProgress ? ` ${syncProgress}` : ''}`
+                : 'Sync from Lilo'}
             </button>
             <span className="sub" style={{ margin: 0 }}>
               Pulls all orders directly from Lilo — no CSV needed.

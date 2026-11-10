@@ -85,20 +85,34 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   // full=1 pulls everything (used for the one-time backfill); default is incremental.
   const full = searchParams.get('full') === '1';
-  // Safety cap on pages per request so we don't run forever. ~100 orders/page.
+  // Safety cap on pages per request. ~100 orders/page.
   const maxPages = Number(searchParams.get('maxPages')) || (full ? 200 : 12);
   // Only pull orders newer than this many days (default 90 = what the analysis needs).
   const sinceDays = Number(searchParams.get('sinceDays')) || 90;
   const cutoffSec = Math.floor(Date.now() / 1000) - sinceDays * 86400;
+  // Where to start in Lilo's newest-first list. The browser calls this route
+  // repeatedly, passing back `nextSkip`, so each call stays short.
+  const startSkip = Math.max(0, Number(searchParams.get('skip')) || 0);
+  // Smallest order id already fetched in this sync run. Orders at or above it
+  // are overlap (new orders push the list down between calls) and must not
+  // trigger the "caught up" stop.
+  const belowId = Number(searchParams.get('belowId')) || Infinity;
+  // Lilo is slow (a 100-order page is 10-20 MB and can take 15s-3min), so stop
+  // starting new pages after this budget to finish well inside maxDuration.
+  const budgetMs = 120_000;
+  const startedAt = Date.now();
 
   const known = full ? new Set<string>() : await fetchKnownOrderIds();
 
   const rows: RawOrderRow[] = [];
-  let skip = 0;
-  let reachedKnown = false;
+  let skip = startSkip;
+  let done = false;
+  let minId = belowId;
 
   try {
     for (let page = 0; page < maxPages; page++) {
+      if (page > 0 && Date.now() - startedAt > budgetMs) break;
+
       const url = `${LILO_BASE}?limit=${PAGE}&skip=${skip}&orderBy=id&order=desc&search=&excludeDemo=true`;
       const res = await fetch(url, {
         headers: {
@@ -119,9 +133,13 @@ export async function GET(request: Request) {
 
       const data = await res.json();
       const orders: Record<string, unknown>[] = Array.isArray(data?.orders) ? data.orders : [];
-      if (orders.length === 0) break;
+      if (orders.length === 0) {
+        done = true;
+        break;
+      }
 
       let newInPage = 0;
+      let freshInPage = 0; // orders below belowId (not overlap from a previous call)
       let reachedCutoff = false;
       for (const o of orders) {
         // Orders come newest-first; once we pass the cutoff date we can stop.
@@ -132,6 +150,13 @@ export async function GET(request: Request) {
           break;
         }
         const id = o._id != null ? String(o._id) : '';
+        const numId = Number(id);
+        if (!isNaN(numId)) {
+          if (numId < belowId) freshInPage++;
+          if (numId < minId) minId = numId;
+        } else {
+          freshInPage++;
+        }
         if (!full && id && known.has(id)) continue; // already stored — skip
         const mapped = mapOrder(o);
         if (mapped) {
@@ -140,26 +165,34 @@ export async function GET(request: Request) {
         }
       }
 
-      if (reachedCutoff) {
-        reachedKnown = true; // nothing older matters — we're done
-        break;
-      }
-
-      // Incremental: if a whole page had no new orders, we've caught up.
-      if (!full && newInPage === 0) {
-        reachedKnown = true;
-        break;
-      }
-
-      if (orders.length < PAGE) break;
       skip += PAGE;
+
+      if (reachedCutoff) {
+        done = true; // nothing older matters
+        break;
+      }
+
+      // Incremental: a page of fresh orders with nothing new means we've caught up.
+      if (!full && newInPage === 0 && freshInPage > 0) {
+        done = true;
+        break;
+      }
+
+      if (orders.length < PAGE) {
+        done = true;
+        break;
+      }
     }
 
     return NextResponse.json({
       rows,
       count: rows.length,
-      caughtUp: reachedKnown,
-      hitPageCap: !reachedKnown && rows.length > 0,
+      done,
+      nextSkip: skip,
+      minId: Number.isFinite(minId) ? minId : null,
+      // kept for older clients
+      caughtUp: done,
+      hitPageCap: !done,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : JSON.stringify(e);
