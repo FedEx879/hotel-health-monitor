@@ -23,6 +23,13 @@ Next.js dashboard that scores the "health" of hotels on the Lilo procurement pla
 - Status filter (`isValidStatus` in analysis): everything counts except statuses containing cancelled/canceled/declined.
 - Supabase `orders` needs a unique index on `order_id` for the upsert (`onConflict: 'order_id'`).
 
+## Login (Slack code)
+
+- Only `@inn-flow.com` emails. The server looks the email up in Slack (`users.lookupByEmail`) and DMs a 6-digit code via the existing **Orders team reviewer** Slack app (bot scopes `users:read.email`, `chat:write`).
+- Code: 10 min, single use, 5 attempts, 1 resend per minute; stored hashed in Supabase table `login_codes` (`scripts/sql/login_codes.sql`).
+- Session: signed cookie `hhm_session`, 7 days (`app/lib/auth.ts`, checked in `middleware.ts`).
+- Env vars: `SLACK_BOT_TOKEN`, `AUTH_SECRET` (random, 32+ chars; changing it signs everyone out). `APP_USERNAME`/`APP_PASSWORD` are no longer used.
+
 ## Auburn HD Supply invoicing (separate from the health score)
 
 Weekly Monday reconciliation of Auburn Hospitality's HD Supply orders against HD Supply invoices in a Google Sheet. Only the Lilo half is automated: `scripts/auburn-hd-orders.mjs` + `.github/workflows/auburn-hd-orders.yml` (Mondays 11:00 UTC; secrets `LILO_API_TOKEN`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `SHEET_ID`).
