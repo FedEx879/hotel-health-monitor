@@ -30,7 +30,7 @@ export async function findSlackUser(email: string): Promise<string | null> {
 
 export async function sendCodeDM(userId: string, code: string): Promise<void> {
   const text =
-    `Your Hotel Health Monitor sign-in code is *${code}*.\n` +
+    `Your Inn-Flow Procurement - Hotel Health Monitor sign-in code is *${code}*.\n` +
     `It expires in 10 minutes. If you didn't request it, ignore this message.`;
   const data = await slack('chat.postMessage', { channel: userId, text });
   if (!data.ok) throw new Error(`Slack chat.postMessage failed: ${data.error}`);

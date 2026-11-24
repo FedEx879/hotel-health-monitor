@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Hotel Health Monitor',
+  title: 'Inn-Flow Procurement - Hotel Health Monitor',
   description: 'One row per order · 3 × 30-day periods · food vs supplies split · grouped by company',
 };
 

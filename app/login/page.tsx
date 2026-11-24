@@ -72,7 +72,7 @@ export default function LoginPage() {
       }}
     >
       <form onSubmit={step === 'email' ? requestCode : verify} style={cardStyle}>
-        <h1 style={{ fontSize: 20, margin: '0 0 4px', fontWeight: 700, color: '#fff' }}>Hotel Health Monitor</h1>
+        <h1 style={{ fontSize: 20, margin: '0 0 4px', fontWeight: 700, color: '#fff' }}>Inn-Flow Procurement - Hotel Health Monitor</h1>
         <p style={{ fontSize: 13, opacity: 0.85, margin: '0 0 20px', color: '#fff' }}>
           {step === 'email'
             ? 'Sign in with your Inn-Flow email. We will send you a code in Slack.'

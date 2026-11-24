@@ -1821,7 +1821,7 @@ export default function Home() {
     <div className="page">
       <div className="header" style={{ position: 'relative' }}>
         <h1>
-          <i className="ti ti-building" /> Hotel health monitor
+          <i className="ti ti-building" /> Inn-Flow Procurement - Hotel Health Monitor
         </h1>
         <p>One row per order · 3 × 30-day periods · food vs supplies split · grouped by company</p>
         <button
