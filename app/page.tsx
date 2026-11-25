@@ -1677,6 +1677,45 @@ export default function Home() {
   const sortedCompanies = Object.keys(byCompany).sort((a, b) => a.localeCompare(b));
   sortedCompanies.forEach((c) => byCompany[c].sort((a, b) => b.sortScore - a.sortScore));
 
+  /**
+   * Download the hotels currently on screen (same filters, same order) as a
+   * CSV: Food and Supply scores with their colour. Hotels without a food/supply
+   * split have one score, which goes in the Supply columns.
+   */
+  const handleExportCsv = () => {
+    const colour = (t: Hotel['tier']) => (t === 'green' ? 'Green' : t === 'amber' ? 'Yellow' : 'Red');
+    const cell = (v: string | number) => {
+      const str = String(v);
+      return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+    };
+    const rows: (string | number)[][] = [
+      ['Hotel', 'Company', 'Food score', 'Food color', 'Supply score', 'Supply color'],
+    ];
+    sortedCompanies.forEach((company) => {
+      byCompany[company].forEach((h) => {
+        const supply = h.split ? h.supplies : h.single;
+        const food = h.split ? h.food : null;
+        rows.push([
+          h.prop,
+          h.company,
+          food ? food.score : '',
+          food ? colour(food.tier) : '',
+          supply ? supply.score : '',
+          supply ? colour(supply.tier) : '',
+        ]);
+      });
+    });
+    const csv = '\uFEFF' + rows.map((r) => r.map(cell).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hotel-health-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
 
   // First Orders — each user's first order per hotel, split into the active
   // 4-week list and the archive.
@@ -2115,6 +2154,14 @@ export default function Home() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                 />
+                <button
+                  className="fb"
+                  onClick={handleExportCsv}
+                  disabled={filteredHotels.length === 0}
+                  title="Download the hotels shown below as a CSV"
+                >
+                  <i className="ti ti-download" /> Export CSV
+                </button>
               </div>
 
               {/* Hotel list */}
